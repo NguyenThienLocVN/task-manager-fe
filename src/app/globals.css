@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.admin-sidebar {
+  background-color: #0e3060;
+  color: #ffffff;
+}
+
+.admin-menu-link {
+  color: #ffffff;
+}
+
+.admin-menu-link:hover {
+  background-color: rgb(255 255 255 / 10%);
+  color: #ffffff;
+}
+
+.admin-menu-link-active {
+  background-color: #ffffff;
+  color: #0e3060;
+}
+
+.admin-menu-link-active:hover {
+  background-color: #eff6ff;
+  color: #0e3060;
+}
