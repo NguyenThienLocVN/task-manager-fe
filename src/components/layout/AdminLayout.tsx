@@ -3,22 +3,7 @@
 import Link from "next/link";
 import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import {
-  BarChart3,
-  Building2,
-  ChevronRight,
-  ClipboardList,
-  FileText,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  Network,
-  Settings,
-  ShieldCheck,
-  Target,
-  UserRound,
-  UsersRound,
-} from "lucide-react";
+import { BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LogOut, Menu, Network, Settings, ShieldCheck, Target, UserRound, UsersRound } from "lucide-react";
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -88,6 +73,11 @@ const menus = [
         label: "Người dùng",
         href: "/quan-tri/nguoi-dung",
         icon: UsersRound,
+      },
+      {
+        label: "Vai trò",
+        href: "/quan-tri/vai-tro",
+        icon: ShieldCheck,
       },
       {
         label: "Phân quyền",

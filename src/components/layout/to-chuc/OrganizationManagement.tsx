@@ -1,22 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Building2,
-  CheckCircle2,
-  Edit3,
-  Info,
-  Mail,
-  MapPin,
-  Phone,
-  Plus,
-  Power,
-  Search,
-  SlidersHorizontal,
-  Trash2,
-  X,
-  XCircle,
-} from "lucide-react";
+import { Building2, CheckCircle2, Edit3, Info, Mail, MapPin, Phone, Plus, Power, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 
 type Organization = {
   id: string;
@@ -378,7 +363,7 @@ export default function OrganizationManagement() {
           key={notification.id}
           role={notification.type === "error" ? "alert" : "status"}
           aria-live={notification.type === "error" ? "assertive" : "polite"}
-          className={`fixed right-5 top-5 z-[70] flex max-w-sm items-start gap-3 rounded-2xl border px-4 py-3 shadow-xl ${
+          className={`fixed right-5 top-5 z-[70] flex max-w-sm items-start gap-3 rounded-2xl border px-4 py-2 shadow-xl ${
             notification.type === "success"
               ? "border-emerald-300 bg-emerald-50 text-emerald-950"
               : "border-red-300 bg-red-50 text-red-950"
@@ -421,30 +406,8 @@ export default function OrganizationManagement() {
         </div>
       )}
 
-      {/* Statistic */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <StatisticCard
-          label="Tổng số cơ quan"
-          value={organizations.length}
-          icon={<Building2 className="h-6 w-6" />}
-        />
-
-        <StatisticCard
-          label="Đang hoạt động"
-          value={activeCount}
-          icon={<CheckCircle2 className="h-6 w-6" />}
-        />
-
-        <StatisticCard
-          label="Tổng phòng / ban"
-          value={totalDepartments}
-          icon={<Building2 className="h-6 w-6" />}
-        />
-
-      </div>
-
       {/* Main card */}
-      <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-5">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
