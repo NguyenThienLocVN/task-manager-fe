@@ -1,0 +1,97 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  backendUrlForApiPath,
+  clearAccessCookie,
+  errorResponse,
+  isSameOriginRequest,
+  readAccessToken,
+} from "@/lib/auth/server";
+
+const ALLOWED_METHODS = new Set([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+]);
+
+async function proxyRequest(
+  request: NextRequest,
+  context: RouteContext<"/api/backend/[...path]">,
+) {
+  if (!ALLOWED_METHODS.has(request.method)) {
+    return errorResponse("Phương thức không được hỗ trợ.", 405);
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD" && !isSameOriginRequest(request)) {
+    return errorResponse("Yêu cầu không hợp lệ.", 403);
+  }
+
+  const { path } = await context.params;
+  if (
+    path.length === 0 ||
+    path.some((part) => {
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(part);
+      } catch {
+        return true;
+      }
+      return (
+        !decoded ||
+        decoded === "." ||
+        decoded === ".." ||
+        decoded.includes("/") ||
+        decoded.includes("\\") ||
+        decoded.toLowerCase() === "auth"
+      );
+    })
+  ) {
+    return errorResponse("Đường dẫn API không hợp lệ.", 400);
+  }
+
+  const accessToken = await readAccessToken();
+  if (!accessToken) return errorResponse("Chưa đăng nhập.", 401);
+
+  const backendUrl = new URL(
+    backendUrlForApiPath(path.map(encodeURIComponent).join("/")),
+  );
+  backendUrl.search = request.nextUrl.search;
+
+  const headers = new Headers();
+  const contentType = request.headers.get("content-type");
+  const accept = request.headers.get("accept");
+  if (contentType) headers.set("Content-Type", contentType);
+  if (accept) headers.set("Accept", accept);
+  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  const backendResponse = await fetch(backendUrl, {
+    method: request.method,
+    headers,
+    body:
+      request.method === "GET" || request.method === "HEAD"
+        ? undefined
+        : await request.arrayBuffer(),
+    cache: "no-store",
+  });
+
+  const responseHeaders = new Headers();
+  const backendContentType = backendResponse.headers.get("content-type");
+  if (backendContentType) {
+    responseHeaders.set("Content-Type", backendContentType);
+  }
+  responseHeaders.set("Cache-Control", "no-store");
+
+  const response = new NextResponse(backendResponse.body, {
+    status: backendResponse.status,
+    headers: responseHeaders,
+  });
+  if (backendResponse.status === 401) clearAccessCookie(response);
+  return response;
+}
+
+export const GET = proxyRequest;
+export const POST = proxyRequest;
+export const PUT = proxyRequest;
+export const PATCH = proxyRequest;
+export const DELETE = proxyRequest;

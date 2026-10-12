@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, CheckCircle2, Info, Pencil, Plus, Power, Search, ShieldCheck, Trash2, X, XCircle } from "lucide-react";
+import { apiRequest as requestApi, ApiError } from "@/lib/auth/api";
 
 type Permission = {
   id: string;
@@ -30,45 +31,6 @@ type Notification = {
   type: "success" | "error";
   message: string;
 };
-
-type ApiErrorWithStatus = Error & { status?: number };
-
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api"
-).replace(/\/+$/, "");
-
-async function requestApi<T>(
-  path: string,
-  options?: RequestInit,
-): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | { message?: string | string[] }
-      | null;
-    const message = Array.isArray(body?.message)
-      ? body.message.join(", ")
-      : body?.message;
-    const error = new Error(
-      message || `Yêu cầu thất bại (${response.status})`,
-    ) as ApiErrorWithStatus;
-    error.status = response.status;
-    throw error;
-  }
-
-  if (response.status === 204) return undefined as T;
-  if (!response.headers.get("content-type")?.includes("json")) {
-    return undefined as T;
-  }
-  return response.json() as Promise<T>;
-}
 
 function unwrapData(value: unknown): unknown {
   if (value && typeof value === "object" && "data" in value) {
@@ -424,7 +386,7 @@ export default function PermissionManagement() {
         }
       } catch (lookupError) {
         if (
-          (lookupError as ApiErrorWithStatus).status !== 404
+          !(lookupError instanceof ApiError && lookupError.status === 404)
         ) {
           throw lookupError;
         }

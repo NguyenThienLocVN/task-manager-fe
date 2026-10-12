@@ -16,6 +16,18 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Authentication
+
+Set `BACKEND_URL` in `.env` to the NestJS API base URL (for example,
+`http://localhost:3001/api`). The Next.js server proxies API requests and stores
+the backend access token in an `HttpOnly`, `SameSite=Lax` cookie; browser
+JavaScript does not receive or persist the token.
+
+The backend must provide `POST /auth/login`, `GET /auth/me`, and
+`POST /auth/logout`. Without an access-token refresh endpoint, a session lasts
+only until the access token expires, after which the user must log in again.
+Production deployments must use HTTPS so the session cookie is marked Secure.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

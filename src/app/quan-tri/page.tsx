@@ -4,6 +4,7 @@ import { Activity, ArrowRight, CalendarDays, Check, CheckCircle2, Clock3, FileTe
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import AdminLayout from "@/components/layout/AdminLayout";
+import CurrentVietnameseDate from "@/components/layout/CurrentVietnameseDate";
 
 export const metadata: Metadata = {
   title: "Bảng điều khiển",
@@ -216,7 +217,7 @@ export default function AdminDashboardPage() {
           <div>
             <div className="flex items-center gap-2 text-sm font-medium text-blue-100">
               <CalendarDays className="h-4 w-4" />
-              <span>TỔNG QUAN HOẠT ĐỘNG</span>
+              <CurrentVietnameseDate />
             </div>
             <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
               Xin chào, Quản trị viên

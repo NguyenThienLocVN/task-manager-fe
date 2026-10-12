@@ -1,18 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Building2,
-  BriefcaseBusiness,
-  Eye,
-  EyeOff,
-  Loader2,
-  LockKeyhole,
-  Mail,
-  Phone,
-  UserRound,
-} from "lucide-react";
+import { Building2, BriefcaseBusiness, Eye, EyeOff, Loader2, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
+import { apiRequest } from "@/lib/auth/api";
 
 type Organization = {
   id: string;
@@ -25,45 +16,127 @@ type Department = {
   name: string;
 };
 
-const organizations: Organization[] = [
-  {
-    id: "org-1",
-    name: "Sở Nông nghiệp và Môi trường",
-  },
-  {
-    id: "org-2",
-    name: "Trung tâm Quan trắc tài nguyên và môi trường",
-  },
-];
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
-const departments: Department[] = [
-  {
-    id: "dep-1",
-    organizationId: "org-1",
-    name: "Văn phòng Sở",
-  },
-  {
-    id: "dep-2",
-    organizationId: "org-1",
-    name: "Phòng Tài nguyên nước",
-  },
-  {
-    id: "dep-3",
-    organizationId: "org-1",
-    name: "Phòng Quản lý môi trường",
-  },
-  {
-    id: "dep-4",
-    organizationId: "org-2",
-    name: "Phòng Quan trắc",
-  },
-];
+function normalizeList(value: unknown, label: string): unknown[] {
+  const wrapped = asRecord(value);
+  const unwrapped = wrapped && "data" in wrapped ? wrapped.data : value;
+  if (Array.isArray(unwrapped)) return unwrapped;
+
+  const record = asRecord(unwrapped);
+  if (record && Array.isArray(record.items)) return record.items;
+  throw new Error(`API không trả về danh sách ${label} hợp lệ.`);
+}
+
+function normalizeOrganization(value: unknown): Organization | null {
+  const record = asRecord(value);
+  const id = record?.id;
+  const name = record?.name;
+  const isActive = record?.isActive ?? record?.is_active;
+
+  if (
+    (typeof id !== "string" && typeof id !== "number") ||
+    typeof name !== "string" ||
+    typeof isActive !== "boolean"
+  ) {
+    throw new Error("Dữ liệu cơ quan không hợp lệ.");
+  }
+
+  return isActive ? { id: String(id), name } : null;
+}
+
+function normalizeDepartment(value: unknown): Department | null {
+  const record = asRecord(value);
+  const id = record?.id;
+  const organizationId = record?.organizationId ?? record?.organization_id;
+  const name = record?.name;
+  const isActive = record?.isActive ?? record?.is_active;
+
+  if (
+    (typeof id !== "string" && typeof id !== "number") ||
+    (typeof organizationId !== "string" && typeof organizationId !== "number") ||
+    typeof name !== "string" ||
+    typeof isActive !== "boolean"
+  ) {
+    throw new Error("Dữ liệu phòng ban không hợp lệ.");
+  }
+
+  return isActive
+    ? { id: String(id), organizationId: String(organizationId), name }
+    : null;
+}
 
 export default function RegisterForm() {
   const [organizationId, setOrganizationId] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [isLoadingOptions, setIsLoadingOptions] = useState(true);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [reloadAttempt, setReloadAttempt] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadOptions() {
+      setIsLoadingOptions(true);
+      setOptionsError(null);
+
+      try {
+        const result = await apiRequest<{
+          organizations: unknown;
+          departments: unknown;
+        }>("/auth/register/options");
+        const organizationOptions = normalizeList(
+          result.organizations,
+          "cơ quan",
+        )
+          .map(normalizeOrganization)
+          .filter((organization): organization is Organization =>
+            Boolean(organization),
+          );
+        const departmentOptions = normalizeList(
+          result.departments,
+          "phòng ban",
+        )
+          .map(normalizeDepartment)
+          .filter((department): department is Department =>
+            Boolean(department),
+          );
+
+        if (isCurrent) {
+          setOrganizations(organizationOptions);
+          setDepartments(departmentOptions);
+        }
+      } catch (requestError) {
+        if (isCurrent) {
+          setOrganizations([]);
+          setDepartments([]);
+          setOptionsError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Không thể tải danh sách cơ quan và phòng ban.",
+          );
+        }
+      } finally {
+        if (isCurrent) setIsLoadingOptions(false);
+      }
+    }
+
+    void loadOptions();
+    return () => {
+      isCurrent = false;
+    };
+  }, [reloadAttempt]);
 
   const filteredDepartments = departments.filter(
     (department) => department.organizationId === organizationId,
@@ -72,28 +145,46 @@ export default function RegisterForm() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const password = String(formData.get("password") ?? "");
+    const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
-    const payload = {
-      username: formData.get("username"),
-      fullName: formData.get("fullName"),
-      email: formData.get("email"),
-      phone: formData.get("phone"),
-      organizationId: formData.get("organizationId"),
-      departmentId: formData.get("departmentId"),
-      jobTitle: formData.get("jobTitle"),
-      password: formData.get("password"),
-      confirmPassword: formData.get("confirmPassword"),
-    };
+    setSubmitError(null);
+    setSubmitSuccess(null);
 
-    console.log(payload);
+    if (password !== confirmPassword) {
+      setSubmitError("Mật khẩu xác nhận không khớp.");
+      return;
+    }
 
     try {
       setLoading(true);
-
-      // TODO call API
-
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await apiRequest<unknown>("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          username: String(formData.get("username") ?? "").trim(),
+          password,
+          fullName: String(formData.get("fullName") ?? "").trim(),
+          email: String(formData.get("email") ?? "").trim() || null,
+          phone: String(formData.get("phone") ?? "").trim() || null,
+          organizationId,
+          departmentId: departmentId || null,
+          jobTitle: String(formData.get("jobTitle") ?? "").trim() || null,
+        }),
+      });
+      form.reset();
+      setOrganizationId("");
+      setDepartmentId("");
+      setSubmitSuccess(
+        "Đăng ký thành công. Tài khoản sẽ được quản trị viên xác nhận trước khi sử dụng.",
+      );
+    } catch (requestError) {
+      setSubmitError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Không thể hoàn tất đăng ký. Vui lòng thử lại.",
+      );
     } finally {
       setLoading(false);
     }
@@ -150,10 +241,18 @@ export default function RegisterForm() {
             name="organizationId"
             value={organizationId}
             required
-            onChange={(e) => setOrganizationId(e.target.value)}
+            disabled={isLoadingOptions || organizations.length === 0}
+            onChange={(e) => {
+              setOrganizationId(e.target.value);
+              setDepartmentId("");
+            }}
             className="h-12 w-full appearance-none rounded-xl border border-slate-300 bg-white pl-12 pr-10 text-sm text-slate-900 outline-none transition hover:border-slate-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-600/10"
           >
-            <option value="">-- Chọn cơ quan / đơn vị --</option>
+            <option value="">
+              {isLoadingOptions
+                ? "-- Đang tải cơ quan / đơn vị --"
+                : "-- Chọn cơ quan / đơn vị --"}
+            </option>
 
             {organizations.map((organization) => (
               <option key={organization.id} value={organization.id}>
@@ -162,6 +261,18 @@ export default function RegisterForm() {
             ))}
           </select>
         </div>
+        {optionsError && (
+          <div className="mt-2 flex items-center justify-between gap-3 text-sm text-red-600">
+            <p role="alert">{optionsError}</p>
+            <button
+              type="button"
+              onClick={() => setReloadAttempt((attempt) => attempt + 1)}
+              className="shrink-0 font-semibold underline underline-offset-2"
+            >
+              Thử tải lại
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
@@ -172,7 +283,9 @@ export default function RegisterForm() {
 
           <select
             name="departmentId"
-            disabled={!organizationId}
+            value={departmentId}
+            disabled={!organizationId || isLoadingOptions}
+            onChange={(e) => setDepartmentId(e.target.value)}
             className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-600/10"
           >
             <option value="">-- Chọn phòng / ban --</option>
@@ -188,7 +301,7 @@ export default function RegisterForm() {
         <Input
           label="Chức vụ"
           name="jobTitle"
-          placeholder="Chuyên viên"
+          placeholder="Trưởng phòng / Chuyên viên, ..."
           icon={<BriefcaseBusiness className="h-5 w-5" />}
         />
       </div>
@@ -211,10 +324,27 @@ export default function RegisterForm() {
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
         <p className="text-xs leading-5 text-amber-800">
-          Sau khi đăng ký, tài khoản có thể cần được quản trị viên xác nhận và
-          cấp quyền trước khi sử dụng đầy đủ các chức năng của hệ thống.
+          Sau khi đăng ký, tài khoản cần được quản trị viên xác nhận và
+          cấp quyền trước khi sử dụng hệ thống.
         </p>
       </div>
+
+      {submitError && (
+        <p
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {submitError}
+        </p>
+      )}
+      {submitSuccess && (
+        <p
+          role="status"
+          className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700"
+        >
+          {submitSuccess}
+        </p>
+      )}
 
       <label className="flex cursor-pointer items-start gap-3">
         <input
@@ -237,7 +367,7 @@ export default function RegisterForm() {
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || isLoadingOptions || organizations.length === 0}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-700/20 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading && <Loader2 className="h-5 w-5 animate-spin" />}

@@ -3,15 +3,26 @@
 import Link from "next/link";
 import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LogOut, Menu, Network, Settings, ShieldCheck, Target, UserRound, UsersRound } from "lucide-react";
+import { BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LogOut, LucideIcon, Menu, Network, Settings, ShieldCheck, Target, UserRound, UsersRound } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 interface AdminLayoutProps {
   children: ReactNode;
   title: string;
   description?: string;
+  requiredPermission?: string;
 }
 
-const menus = [
+const menus: {
+  label?: string;
+  items: {
+    label: string;
+    href: string;
+    icon: LucideIcon;
+    permission?: string;
+  }[];
+}[] = [
   {
     items: [
       {
@@ -73,16 +84,19 @@ const menus = [
         label: "Người dùng",
         href: "/quan-tri/nguoi-dung",
         icon: UsersRound,
+        permission: "USER_MANAGE",
       },
       {
         label: "Vai trò",
         href: "/quan-tri/vai-tro",
         icon: ShieldCheck,
+        permission: "ROLE_MANAGE",
       },
       {
         label: "Phân quyền",
         href: "/quan-tri/phan-quyen",
         icon: ShieldCheck,
+        permission: "ROLE_MANAGE",
       },
     ],
   },
@@ -92,10 +106,13 @@ export default function AdminLayout({
   children,
   title,
   description,
+  requiredPermission,
 }: AdminLayoutProps) {
   const pathname = usePathname();
+  const { user, hasPermission, logout } = useAuth();
 
   return (
+    <ProtectedRoute requiredPermission={requiredPermission}>
     <div className="min-h-screen bg-slate-50">
       {/* Sidebar */}
       <aside className="admin-sidebar fixed inset-y-0 left-0 hidden w-72 flex-col lg:flex">
@@ -107,7 +124,7 @@ export default function AdminLayout({
 
             <div>
               <div className="font-bold tracking-wide text-white">
-                TASK MANAGEMENT
+                UBND P. Tân Khai
               </div>
               <div className="text-xs text-white">
                 Hệ thống quản lý công việc
@@ -125,43 +142,42 @@ export default function AdminLayout({
                 </h2>
               )}
               <div className="space-y-1">
-                {menu.items.map((item) => {
-                  const active =
-                    pathname === item.href ||
-                    (item.href !== "/quan-tri" &&
-                      pathname.startsWith(`${item.href}/`));
-                  const Icon = item.icon;
+                {menu.items
+                  .filter(
+                    (item) =>
+                      !item.permission || hasPermission(item.permission),
+                  )
+                  .map((item) => {
+                    const active =
+                      pathname === item.href ||
+                      (item.href !== "/quan-tri" &&
+                        pathname.startsWith(`${item.href}/`));
+                    const Icon = item.icon;
 
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      aria-current={active ? "page" : undefined}
-                      className={`admin-menu-link flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
-                        active ? "admin-menu-link-active" : ""
-                      }`}
-                    >
-                      <Icon className="h-5 w-5" />
-                      <span className="flex-1">{item.label}</span>
-                      {active && <ChevronRight className="h-4 w-4" />}
-                    </Link>
-                  );
-                })}
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        aria-current={active ? "page" : undefined}
+                        className={`admin-menu-link flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
+                          active ? "admin-menu-link-active" : ""
+                        }`}
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span className="flex-1">{item.label}</span>
+                        {active && <ChevronRight className="h-4 w-4" />}
+                      </Link>
+                    );
+                  })}
               </div>
             </div>
           ))}
         </nav>
 
         <div className="border-t border-white/15 p-4">
-          <button className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white hover:bg-white/10">
-            <Settings className="h-5 w-5" />
-            Cài đặt hệ thống
-          </button>
-
-          <button className="mt-1 flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white hover:bg-white/10">
-            <LogOut className="h-5 w-5" />
-            Đăng xuất
-          </button>
+          <div className="text-xs text-center text-blue-200">
+              © 2026 | All rights reserved.
+            </div>
         </div>
       </aside>
 
@@ -185,22 +201,40 @@ export default function AdminLayout({
             </div>
           </div>
 
-          <button className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-50">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-semibold text-slate-800">
-                Quản trị viên
-              </p>
-              <p className="text-xs text-slate-500">Administrator</p>
-            </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3 rounded-xl p-2">
+              <div className="hidden text-right sm:block">
+                <p className="text-sm font-semibold text-slate-800">
+                  {user?.fullName ?? user?.username ?? "Người dùng"}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {user?.roles.join(", ") ?? ""}
+                </p>
+              </div>
 
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700">
-              <UserRound className="h-5 w-5" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                <UserRound className="h-5 w-5" />
+              </div>
             </div>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Bạn có chắc chắn muốn đăng xuất không?")) {
+                  void logout();
+                }
+              }}
+              aria-label="Đăng xuất"
+              className="flex items-center gap-2 rounded-xl p-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            >
+              <LogOut className="h-5 w-5" />
+              <span className="hidden sm:inline">Đăng xuất</span>
+            </button>
+          </div>
         </header>
 
         <main className="p-5 lg:p-8">{children}</main>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }

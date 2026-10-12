@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Info, Pencil, Plus, Power, Search, Shield, Trash2, X, XCircle
 } from "lucide-react";
+import { apiRequest as requestApi, ApiError } from "@/lib/auth/api";
 
 type Role = {
   id: string;
@@ -16,52 +17,6 @@ type Role = {
 type RoleForm = Pick<Role, "code" | "name" | "description">;
 type Notification = { id: number; type: "success" | "error"; message: string };
 type Modal = "form" | null;
-
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
-
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api"
-).replace(/\/+$/, "");
-
-async function requestApi<T>(
-  path: string,
-  options?: RequestInit,
-): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | { message?: string | string[] }
-      | null;
-    const message = Array.isArray(body?.message)
-      ? body.message.join(", ")
-      : body?.message;
-    throw new ApiError(
-      message || `Yêu cầu thất bại (${response.status})`,
-      response.status,
-    );
-  }
-
-  if (response.status === 204) return undefined as T;
-  if (!response.headers.get("content-type")?.includes("json")) {
-    return undefined as T;
-  }
-  return response.json() as Promise<T>;
-}
 
 function unwrapData(value: unknown): unknown {
   if (

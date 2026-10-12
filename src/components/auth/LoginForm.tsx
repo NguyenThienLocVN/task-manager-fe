@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Eye,
   EyeOff,
@@ -10,38 +11,52 @@ import {
   LockKeyhole,
   UserRound,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { ApiError } from "@/lib/auth/api";
 
 export default function LoginForm() {
+  const router = useRouter();
+  const {
+    isAuthenticated,
+    loading: authLoading,
+    restoreError,
+    logoutError,
+    login,
+  } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) router.replace("/dashboard");
+  }, [authLoading, isAuthenticated, router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
-
-    const payload = {
-      username: formData.get("username"),
-      password: formData.get("password"),
-      remember,
-    };
-
-    console.log(payload);
+    const username = String(formData.get("username") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
 
     try {
       setLoading(true);
-
-      // TODO:
-      // await fetch("/api/auth/login", {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //   },
-      //   body: JSON.stringify(payload),
-      // });
-
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      setError(null);
+      await login(username, password);
+      router.replace("/dashboard");
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        setError("Tên đăng nhập hoặc mật khẩu không đúng.");
+      } else if (cause instanceof ApiError && cause.status >= 500) {
+        setError("Máy chủ đang gặp sự cố. Vui lòng thử lại sau.");
+      } else if (cause instanceof TypeError) {
+        setError("Không thể kết nối đến máy chủ. Vui lòng thử lại.");
+      } else {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Đăng nhập thất bại. Vui lòng thử lại.",
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -54,7 +69,7 @@ export default function LoginForm() {
           htmlFor="username"
           className="mb-2 block text-sm font-semibold text-slate-700"
         >
-          Tên đăng nhập
+          Tên đăng nhập hoặc Email
         </label>
 
         <div className="relative">
@@ -66,7 +81,7 @@ export default function LoginForm() {
             type="text"
             autoComplete="username"
             required
-            placeholder="Nhập tên đăng nhập"
+            placeholder="Nhập tên đăng nhập hoặc địa chỉ email"
             className="h-12 w-full rounded-xl border border-slate-300 bg-white pl-12 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-600/10"
           />
         </div>
@@ -110,20 +125,34 @@ export default function LoginForm() {
         </div>
       </div>
 
-      <label className="flex cursor-pointer items-center gap-3">
-        <input
-          type="checkbox"
-          checked={remember}
-          onChange={(e) => setRemember(e.target.checked)}
-          className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-        />
-
-        <span className="text-sm text-slate-600">Ghi nhớ đăng nhập</span>
-      </label>
+      {error && (
+        <p
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {error}
+        </p>
+      )}
+      {logoutError && (
+        <p
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          {logoutError}
+        </p>
+      )}
+      {restoreError && (
+        <p
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          {restoreError}
+        </p>
+      )}
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || authLoading}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-700/20 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? (

@@ -11,6 +11,7 @@ export default function UsersPage() {
     <AdminLayout
       title="Quản lý người dùng"
       description="Quản lý tài khoản, thông tin công tác và vai trò người dùng."
+      // requiredPermission="USER_MANAGE"
     >
       <UserManagement />
     </AdminLayout>

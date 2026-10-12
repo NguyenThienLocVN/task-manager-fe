@@ -11,6 +11,7 @@ export default function PermissionsPage() {
     <AdminLayout
       title="Quản lý quyền hạn"
       description="Quản lý danh mục quyền và phân quyền truy cập theo vai trò."
+      requiredPermission="ROLE_MANAGE"
     >
       <PermissionManagement />
     </AdminLayout>

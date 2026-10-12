@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, Info, KeyRound, Pencil, Plus, Power, Search, SlidersHorizontal, Trash2, UserRound, UsersRound, X, XCircle } from "lucide-react";
+import { apiRequest as requestApi } from "@/lib/auth/api";
 
 type Option = {
   id: string;
@@ -54,50 +55,6 @@ type Notification = {
   message: string;
 };
 type Modal = "form" | "password" | null;
-
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
-
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api"
-).replace(/\/+$/, "");
-
-async function requestApi<T>(
-  path: string,
-  options?: RequestInit,
-): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | { message?: string | string[] }
-      | null;
-    const message = Array.isArray(body?.message)
-      ? body.message.join(", ")
-      : body?.message;
-    throw new ApiError(
-      message || `Yêu cầu thất bại (${response.status})`,
-      response.status,
-    );
-  }
-  if (response.status === 204) return undefined as T;
-  if (!response.headers.get("content-type")?.includes("json")) {
-    return undefined as T;
-  }
-  return response.json() as Promise<T>;
-}
 
 function unwrapData(value: unknown): unknown {
   if (value && typeof value === "object" && "data" in value) {
@@ -1306,7 +1263,7 @@ function StatusPill({ active }: { active: boolean }) {
           active ? "bg-emerald-500" : "bg-slate-400"
         }`}
       />
-      {active ? "Hoạt động" : "Ngừng hoạt động"}
+      {active ? "Hoạt động" : "Chưa kích hoạt"}
     </span>
   );
 }

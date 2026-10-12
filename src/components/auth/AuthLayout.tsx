@@ -39,10 +39,7 @@ export default function AuthLayout({
 
                 <div>
                   <div className="text-xl font-bold tracking-wide">
-                    TASK MANAGEMENT
-                  </div>
-                  <div className="text-sm text-blue-100">
-                    Hệ thống quản lý công việc
+                    UBND Phường Tân Khai
                   </div>
                 </div>
               </Link>
@@ -83,7 +80,7 @@ export default function AuthLayout({
             </div>
 
             <div className="text-xs text-blue-200">
-              © 2026 Hệ thống quản lý công việc. All rights reserved.
+              © 2026 | All rights reserved.
             </div>
           </div>
         </div>

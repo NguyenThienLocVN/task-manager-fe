@@ -11,6 +11,7 @@ export default function RolesPage() {
     <AdminLayout
       title="Quản lý vai trò"
       description="Quản lý vai trò và phạm vi truy cập trong hệ thống."
+      requiredPermission="ROLE_MANAGE"
     >
       <RoleManagement />
     </AdminLayout>
