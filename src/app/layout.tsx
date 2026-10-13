@@ -15,16 +15,17 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Task Management",
-    template: "%s | Task Management",
+    default: "Quản lý công việc | UBND Phường Tân Khai",
+    template: "%s | UBND Phường Tân Khai",
   },
-  description: "Hệ thống quản lý công việc",
+  description:
+    "Hệ thống quản lý công việc tập trung, giúp giao nhiệm vụ rõ ràng, theo dõi tiến độ và phối hợp hiệu quả.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="en"
+      lang="vi"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
