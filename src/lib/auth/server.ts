@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 export const ACCESS_TOKEN_COOKIE = "task_manager_access";
 
 const API_BASE_URL = (
-  process.env.BACKEND_URL ?? "http://localhost:3001/api"
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api"
 ).replace(/\/+$/, "");
 
 export function isSameOriginRequest(request: Request) {
