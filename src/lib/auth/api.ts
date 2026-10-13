@@ -25,12 +25,13 @@ export type AuthUser = {
   lastLoginAt?: string | null;
 };
 
-function getLocalApiPath(path: string) {
-  if (path.startsWith("/auth/")) {
-    return `/api${path}`;
-  }
 
-  return `/api/backend${path.startsWith("/") ? path : `/${path}`}`;
+function getLocalApiPath(path: string): string {
+  const baseURL = (process.env.NEXT_PUBLIC_API_URL || "/api").replace(/\/+$/, "");
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  return `${baseURL}${normalizedPath}`;
 }
 
 async function getErrorMessage(response: Response) {
