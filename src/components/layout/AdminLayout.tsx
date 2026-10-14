@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LogOut, LucideIcon, Menu, Network, Settings, ShieldCheck, Target, UserRound, UsersRound } from "lucide-react";
+import { BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LogOut, LucideIcon, Menu, Network, ShieldCheck, Target, UserRound, UsersRound, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
@@ -110,14 +110,50 @@ export default function AdminLayout({
 }: AdminLayoutProps) {
   const pathname = usePathname();
   const { user, hasPermission, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen]);
 
   return (
     <ProtectedRoute requiredPermission={requiredPermission}>
     <div className="min-h-screen bg-slate-50">
+      <button
+        type="button"
+        aria-label="Đóng menu"
+        aria-hidden={!mobileMenuOpen}
+        tabIndex={mobileMenuOpen ? 0 : -1}
+        onClick={() => setMobileMenuOpen(false)}
+        className={`fixed inset-0 z-40 bg-slate-950/50 transition-[opacity,visibility] duration-300 ease-in-out motion-reduce:transition-none lg:hidden ${
+          mobileMenuOpen
+            ? "visible opacity-100 [transition-delay:0ms,0ms]"
+            : "invisible opacity-0 [transition-delay:0ms,300ms]"
+        }`}
+      />
+
       {/* Sidebar */}
-      <aside className="admin-sidebar fixed inset-y-0 left-0 hidden w-72 flex-col lg:flex">
+      <aside
+        id="admin-navigation"
+        className={`admin-sidebar fixed inset-y-0 left-0 z-50 flex w-72 flex-col transition-[transform,visibility] duration-300 ease-in-out motion-reduce:transition-none lg:visible lg:translate-x-0 lg:delay-0 lg:z-auto ${
+          mobileMenuOpen
+            ? "visible translate-x-0 [transition-delay:0ms,0ms]"
+            : "invisible -translate-x-full [transition-delay:0ms,300ms]"
+        }`}
+      >
         <div className="flex h-20 items-center border-b border-white/15 px-6">
-          <Link href="/quan-tri" className="flex items-center gap-3">
+          <Link
+            href="/quan-tri"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-3"
+          >
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-white">
               <Building2 className="h-6 w-6" />
             </div>
@@ -133,7 +169,10 @@ export default function AdminLayout({
           </Link>
         </div>
 
-        <nav className="flex-1 space-y-5 overflow-y-auto px-4 py-6">
+        <nav
+          aria-label="Menu quản trị"
+          className="flex-1 space-y-5 overflow-y-auto px-4 py-6"
+        >
           {menus.map((menu) => (
             <div key={menu.label ?? menu.items[0].href}>
               {menu.label && (
@@ -158,6 +197,7 @@ export default function AdminLayout({
                       <Link
                         key={item.href}
                         href={item.href}
+                        onClick={() => setMobileMenuOpen(false)}
                         aria-current={active ? "page" : undefined}
                         className={`admin-menu-link flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
                           active ? "admin-menu-link-active" : ""
@@ -186,8 +226,19 @@ export default function AdminLayout({
         {/* Header */}
         <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur lg:px-8">
           <div className="flex items-center gap-4">
-            <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden">
-              <Menu className="h-6 w-6" />
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              aria-label={mobileMenuOpen ? "Đóng menu" : "Mở menu"}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="admin-navigation"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
+            >
+              {mobileMenuOpen ? (
+                <X className="h-6 w-6" />
+              ) : (
+                <Menu className="h-6 w-6" />
+              )}
             </button>
 
             <div>

@@ -95,7 +95,7 @@ export default function AuthLayout({
               </div>
 
               <div>
-                <p className="font-bold text-slate-900">TASK MANAGEMENT</p>
+                <p className="font-bold text-slate-900">UBND Phường Tân Khai</p>
                 <p className="text-xs text-slate-500">
                   Hệ thống quản lý công việc
                 </p>
