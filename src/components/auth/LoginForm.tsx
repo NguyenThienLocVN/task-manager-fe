@@ -28,7 +28,7 @@ export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) router.replace("/dashboard");
+    if (!authLoading && isAuthenticated) router.replace("/quan-tri");
   }, [authLoading, isAuthenticated, router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -42,7 +42,7 @@ export default function LoginForm() {
       setLoading(true);
       setError(null);
       await login(username, password);
-      router.replace("/dashboard");
+      router.replace("/quan-tri");
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
         setError("Tên đăng nhập hoặc mật khẩu không đúng.");

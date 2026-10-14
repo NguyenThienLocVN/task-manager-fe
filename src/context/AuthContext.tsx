@@ -102,9 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("API đăng nhập không trả về thông tin người dùng.");
       }
 
-      await getCurrentUser();
+      setUser(result.user);
     },
-    [getCurrentUser],
+    [],
   );
 
   const logout = useCallback(async () => {
