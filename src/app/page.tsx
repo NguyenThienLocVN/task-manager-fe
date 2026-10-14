@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowRight, BarChart3, Building2, Check, CheckCircle2, ClipboardCheck, Clock3, FileText, LayoutDashboard, ListChecks, ShieldCheck, UsersRound } from "lucide-react";
+import { ArrowDown, BarChart3, Building2, Check, CheckCircle2, ClipboardCheck, Clock3, FileText, LayoutDashboard, ListChecks, ShieldCheck, UsersRound } from "lucide-react";
+import {
+  HomeHeaderActions,
+  HomeHeroAction,
+} from "@/components/auth/HomeAuthActions";
 
 export const metadata: Metadata = {
   title: "Quản lý công việc hiệu quả và minh bạch",
@@ -101,20 +105,7 @@ export default function Home() {
             </span>
           </Link>
 
-          <nav aria-label="Điều hướng chính" className="flex items-center gap-2 sm:gap-3">
-            <Link
-              href="/dang-nhap"
-              className="rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10 sm:px-4"
-            >
-              Đăng nhập
-            </Link>
-            <Link
-              href="/dang-ky"
-              className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-blue-900 shadow-sm transition hover:bg-blue-50 sm:px-4"
-            >
-              Đăng ký
-            </Link>
-          </nav>
+          <HomeHeaderActions />
         </header>
 
         <div className="mx-auto grid w-full max-w-7xl items-center gap-12 px-5 pb-20 pt-12 sm:px-8 sm:pb-24 sm:pt-16 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:px-12 lg:pb-28 lg:pt-20">
@@ -135,13 +126,7 @@ export default function Home() {
               — giúp phối hợp chủ động và điều hành minh bạch hơn.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/dang-nhap"
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                Truy cập hệ thống
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
+              <HomeHeroAction />
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm text-blue-100">
               <span className="inline-flex items-center gap-2">

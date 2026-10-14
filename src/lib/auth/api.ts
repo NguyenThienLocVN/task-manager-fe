@@ -27,11 +27,17 @@ export type AuthUser = {
 
 
 function getLocalApiPath(path: string): string {
-  const baseURL = (process.env.NEXT_PUBLIC_API_URL || "/api").replace(/\/+$/, "");
+  const normalizedPath = path.replace(/^\/+/, "");
 
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (
+    normalizedPath.startsWith("auth/") ||
+    normalizedPath === "organizations" ||
+    normalizedPath === "departments"
+  ) {
+    return `/api/${normalizedPath}`;
+  }
 
-  return `${baseURL}${normalizedPath}`;
+  return `/api/backend/${normalizedPath}`;
 }
 
 async function getErrorMessage(response: Response) {
