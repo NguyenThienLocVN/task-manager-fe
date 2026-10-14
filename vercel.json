@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://27.71.17.228/api/:path*"
+      "destination": "https://api.aiphuongtankhai.vn/api/:path*"
     }
   ]
 }
