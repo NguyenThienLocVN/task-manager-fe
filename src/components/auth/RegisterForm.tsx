@@ -92,12 +92,12 @@ export default function RegisterForm() {
       setOptionsError(null);
 
       try {
-        const result = await apiRequest<{
-          organizations: unknown;
-          departments: unknown;
-        }>("/auth/register/options");
+        const [organizationData, departmentData] = await Promise.all([
+          apiRequest<unknown>("/organizations"),
+          apiRequest<unknown>("/departments"),
+        ]);
         const organizationOptions = normalizeList(
-          result.organizations,
+          organizationData,
           "cơ quan",
         )
           .map(normalizeOrganization)
@@ -105,7 +105,7 @@ export default function RegisterForm() {
             Boolean(organization),
           );
         const departmentOptions = normalizeList(
-          result.departments,
+          departmentData,
           "phòng ban",
         )
           .map(normalizeDepartment)

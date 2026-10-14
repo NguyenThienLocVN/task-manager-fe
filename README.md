@@ -26,6 +26,8 @@ JavaScript does not receive or persist the token.
 The backend must provide `POST /auth/login`, `GET /auth/me`, and
 `POST /auth/logout`. Without an access-token refresh endpoint, a session lasts
 only until the access token expires, after which the user must log in again.
+The cookie is retained for at most seven days and never outlives the token;
+this cookie lifetime does not extend the backend token's validity.
 Production deployments must use HTTPS so the session cookie is marked Secure.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.

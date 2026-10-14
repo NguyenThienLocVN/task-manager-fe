@@ -4,8 +4,11 @@ import { NextResponse } from "next/server";
 export const ACCESS_TOKEN_COOKIE = "task_manager_access";
 
 const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api"
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://localhost:3001/api"
 ).replace(/\/+$/, "");
+
+const MAX_SESSION_COOKIE_AGE = 7 * 24 * 60 * 60;
 
 export function isSameOriginRequest(request: Request) {
   const origin = request.headers.get("origin");
@@ -23,6 +26,20 @@ export async function callBackend(
   return fetch(`${API_BASE_URL}/${path.replace(/^\/+/, "")}`, {
     ...init,
     cache: "no-store",
+  });
+}
+
+export async function proxyPublicGet(path: string) {
+  const backendResponse = await callBackend(path);
+  const headers = new Headers({
+    "Cache-Control": "no-store",
+  });
+  const contentType = backendResponse.headers.get("content-type");
+  if (contentType) headers.set("Content-Type", contentType);
+
+  return new NextResponse(backendResponse.body, {
+    status: backendResponse.status,
+    headers,
   });
 }
 
@@ -74,7 +91,7 @@ export function setAccessCookie(
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/api",
-    maxAge,
+    maxAge: Math.min(maxAge, MAX_SESSION_COOKIE_AGE),
   });
 }
 
