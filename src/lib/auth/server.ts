@@ -11,9 +11,24 @@ const API_BASE_URL = (
 
 const MAX_SESSION_COOKIE_AGE = 7 * 24 * 60 * 60;
 
-export function isSameOriginRequest(request: Request) {
+export function isSameOriginRequest(request: Request): boolean {
   const origin = request.headers.get("origin");
-  return origin === new URL(request.url).origin;
+
+  if (!origin) {
+    return false;
+  }
+
+  const allowedOrigins = [
+    "https://qlcv.aiphuongtankhai.vn",
+    "http://localhost:3000",
+  ];
+
+  try {
+    const parsedOrigin = new URL(origin);
+    return allowedOrigins.includes(parsedOrigin.origin);
+  } catch {
+    return false;
+  }
 }
 
 export function errorResponse(message: string, status: number) {
