@@ -17,7 +17,7 @@ const ALLOWED_METHODS = new Set([
 
 async function proxyRequest(
   request: NextRequest,
-  context: RouteContext<"/api/backend/[...path]">,
+  context: RouteContext<"/api/[...path]">,
 ) {
   if (!ALLOWED_METHODS.has(request.method)) {
     return errorResponse("Phương thức không được hỗ trợ.", 405);

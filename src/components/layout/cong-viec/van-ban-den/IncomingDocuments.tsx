@@ -264,7 +264,7 @@ function normalizeDocumentPage(
 }
 
 function documentFilePath(documentId: string, action: "file" | "download") {
-  return `/api/backend/documents/${encodeURIComponent(documentId)}/${action}`;
+  return `/api/documents/${encodeURIComponent(documentId)}/${action}`;
 }
 
 function normalizeStatus(value: unknown): DocumentStatus {
