@@ -61,8 +61,12 @@ async function proxyRequest(
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
   const accept = request.headers.get("accept");
+  const range = request.headers.get("range");
+  const ifRange = request.headers.get("if-range");
   if (contentType) headers.set("Content-Type", contentType);
   if (accept) headers.set("Accept", accept);
+  if (range) headers.set("Range", range);
+  if (ifRange) headers.set("If-Range", ifRange);
   headers.set("Authorization", `Bearer ${accessToken}`);
 
   const backendResponse = await fetch(backendUrl, {
@@ -76,9 +80,15 @@ async function proxyRequest(
   });
 
   const responseHeaders = new Headers();
-  const backendContentType = backendResponse.headers.get("content-type");
-  if (backendContentType) {
-    responseHeaders.set("Content-Type", backendContentType);
+  for (const headerName of [
+    "content-type",
+    "content-disposition",
+    "content-length",
+    "accept-ranges",
+    "content-range",
+  ]) {
+    const headerValue = backendResponse.headers.get(headerName);
+    if (headerValue) responseHeaders.set(headerName, headerValue);
   }
   responseHeaders.set("Cache-Control", "no-store");
 

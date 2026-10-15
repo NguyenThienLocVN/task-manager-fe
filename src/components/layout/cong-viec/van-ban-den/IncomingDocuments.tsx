@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  Download,
   FilePlus2,
   FileSearch2,
   FileText,
@@ -16,6 +17,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Upload,
   UserRound,
   UsersRound,
   X,
@@ -23,7 +25,13 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest } from "@/lib/auth/api";
 
-type DocumentStatus = "pending" | "processing" | "completed" | "rejected";
+type DocumentStatus =
+  | "RECEIVED"
+  | "CLASSIFIED"
+  | "ASSIGNED"
+  | "PROCESSING"
+  | "COMPLETED"
+  | "ARCHIVED";
 type Priority = "low" | "medium" | "high" | "urgent";
 
 type AiAnalysis = {
@@ -43,6 +51,8 @@ type IncomingDocument = {
   title: string;
   documentType: string;
   issuingAgency: string;
+  fieldId: string;
+  fieldName: string;
   receivedDate: string;
   fileUrl: string;
   receivedBy: string;
@@ -59,16 +69,26 @@ type Option = {
   departmentId: string;
 };
 
+type DocumentField = {
+  id: string;
+  name: string;
+};
+
 type DocumentForm = {
   documentNo: string;
   documentDate: string;
   title: string;
   documentType: string;
   issuingAgency: string;
+  fieldId: string;
   receivedDate: string;
-  fileUrl: string;
   receivedBy: string;
   status: DocumentStatus;
+};
+
+type DocumentTypeOption = {
+  label: string;
+  value: string;
 };
 
 type AssignmentForm = {
@@ -90,10 +110,10 @@ const emptyDocumentForm: DocumentForm = {
   title: "",
   documentType: "",
   issuingAgency: "",
+  fieldId: "",
   receivedDate: "",
-  fileUrl: "",
   receivedBy: "",
-  status: "pending",
+  status: "RECEIVED",
 };
 
 const emptyAssignmentForm: AssignmentForm = {
@@ -105,10 +125,12 @@ const emptyAssignmentForm: AssignmentForm = {
 };
 
 const statusLabels: Record<DocumentStatus, string> = {
-  pending: "Chờ xử lý",
-  processing: "Đang xử lý",
-  completed: "Đã hoàn thành",
-  rejected: "Không xử lý",
+  RECEIVED: "Mới tiếp nhận",
+  CLASSIFIED: "Đã phân loại",
+  ASSIGNED: "Đã phân công",
+  PROCESSING: "Đang xử lý",
+  COMPLETED: "Đã hoàn thành",
+  ARCHIVED: "Đã lưu trữ",
 };
 
 const priorityLabels: Record<Priority, string> = {
@@ -117,6 +139,38 @@ const priorityLabels: Record<Priority, string> = {
   high: "Cao",
   urgent: "Khẩn",
 };
+
+const documentTypeOptions: DocumentTypeOption[] = [
+  { label: "Nghị quyết - NQ", value: "NQ" },
+  { label: "Quyết định - QĐ", value: "QĐ" },
+  { label: "Chỉ thị - CT", value: "CT" },
+  { label: "Quy chế - QC", value: "QC" },
+  { label: "Quy định - QYĐ", value: "QYĐ" },
+  { label: "Thông cáo - TC", value: "TC" },
+  { label: "Thông báo - TB", value: "TB" },
+  { label: "Hướng dẫn - HD", value: "HD" },
+  { label: "Chương trình - CTr", value: "CTr" },
+  { label: "Kế hoạch - KH", value: "KH" },
+  { label: "Phương án - PA", value: "PA" },
+  { label: "Đề án - ĐA", value: "ĐA" },
+  { label: "Dự án - DA", value: "DA" },
+  { label: "Báo cáo - BC", value: "BC" },
+  { label: "Biên bản - BB", value: "BB" },
+  { label: "Tờ trình - TTr", value: "TTr" },
+  { label: "Hợp đồng - HĐ", value: "HĐ" },
+  { label: "Công văn - CV", value: "CV" },
+  { label: "Công điện - CĐ", value: "CĐ" },
+  { label: "Bản ghi nhớ - BGN", value: "BGN" },
+  { label: "Bản thỏa thuận - BTT", value: "BTT" },
+  { label: "Giấy ủy quyền - GUQ", value: "GUQ" },
+  { label: "Giấy mời - GM", value: "GM" },
+  { label: "Giấy giới thiệu - GGT", value: "GGT" },
+  { label: "Giấy nghỉ phép - GNP", value: "GNP" },
+  { label: "Phiếu gửi - PG", value: "PG" },
+  { label: "Phiếu chuyển - PC", value: "PC" },
+  { label: "Phiếu báo - PB", value: "PB" },
+  { label: "Thư công", value: "Thư công" },
+];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object"
@@ -151,15 +205,85 @@ function readList(value: unknown, label: string): unknown[] {
   throw new Error(`API không trả về danh sách ${label} hợp lệ.`);
 }
 
+type DocumentPage = {
+  items: unknown[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+function numericValue(value: unknown, fallback: number): number {
+  const result = Number(value);
+  return Number.isFinite(result) && result >= 0 ? result : fallback;
+}
+
+function normalizeDocumentPage(
+  value: unknown,
+  requestedPage: number,
+  requestedPageSize: number,
+): DocumentPage {
+  const root = asRecord(value);
+  const payload = unwrap(value);
+  const data = asRecord(payload);
+  const metadata = asRecord(data?.meta ?? root?.meta ?? data?.pagination ?? root?.pagination);
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data?.results)
+        ? data.results
+        : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(root?.items)
+            ? root.items
+            : Array.isArray(root?.results)
+              ? root.results
+              : [];
+  const page = numericValue(
+    data?.page ?? data?.currentPage ?? data?.current_page ??
+      metadata?.page ?? metadata?.currentPage ?? metadata?.current_page ??
+      root?.page ?? root?.currentPage ?? root?.current_page,
+    requestedPage,
+  );
+  const pageSize = numericValue(
+    data?.limit ?? data?.pageSize ?? data?.page_size ?? data?.perPage ??
+      metadata?.limit ?? metadata?.pageSize ?? metadata?.page_size ??
+      metadata?.perPage ?? root?.limit ?? root?.pageSize ?? root?.page_size ??
+      root?.perPage,
+    requestedPageSize,
+  );
+  const total = numericValue(
+    data?.total ?? data?.totalCount ?? data?.total_count ?? data?.totalItems ??
+      data?.total_items ?? data?.count ?? metadata?.total ??
+      metadata?.totalCount ?? metadata?.total_count ?? metadata?.totalItems ??
+      metadata?.total_items ?? root?.total ?? root?.totalCount ??
+      root?.total_count ?? root?.totalItems ?? root?.total_items ?? root?.count,
+    items.length,
+  );
+  return { items, total, page, pageSize };
+}
+
+function documentFilePath(documentId: string, action: "file" | "download") {
+  return `/api/backend/documents/${encodeURIComponent(documentId)}/${action}`;
+}
+
 function normalizeStatus(value: unknown): DocumentStatus {
-  if (
-    value === "processing" ||
-    value === "completed" ||
-    value === "rejected"
-  ) {
-    return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toUpperCase();
+    if (
+      normalized === "RECEIVED" ||
+      normalized === "CLASSIFIED" ||
+      normalized === "ASSIGNED" ||
+      normalized === "PROCESSING" ||
+      normalized === "COMPLETED" ||
+      normalized === "ARCHIVED"
+    ) {
+      return normalized;
+    }
+    if (normalized === "PENDING") return "RECEIVED";
+    if (normalized === "REJECTED") return "ARCHIVED";
   }
-  return "pending";
+  return "RECEIVED";
 }
 
 function normalizePriority(value: unknown): Priority | "" {
@@ -172,6 +296,18 @@ function normalizePriority(value: unknown): Priority | "" {
     return value;
   }
   return "";
+}
+
+function documentTypeLabel(value: string): string {
+  return (
+    documentTypeOptions.find(
+      (option) =>
+        option.value.toLocaleLowerCase("vi-VN") ===
+          value.toLocaleLowerCase("vi-VN") ||
+        option.label.toLocaleLowerCase("vi-VN") ===
+          value.toLocaleLowerCase("vi-VN"),
+    )?.label ?? value
+  );
 }
 
 function normalizeAnalysis(value: unknown): AiAnalysis | null {
@@ -220,6 +356,17 @@ function normalizeDocument(value: unknown): IncomingDocument {
     title,
     documentType: text(readValue(record, "documentType", "document_type")),
     issuingAgency: text(readValue(record, "issuingAgency", "issuing_agency")),
+    fieldId: text(
+      readValue(record, "fieldId", "field_id") ??
+        asRecord(record.field)?.id ??
+        asRecord(record.documentField ?? record.document_field)?.id,
+    ),
+    fieldName: text(
+      asRecord(record.field)?.name ??
+        asRecord(record.documentField ?? record.document_field)?.name ??
+        record.fieldName ??
+        record.field_name,
+    ),
     receivedDate: text(readValue(record, "receivedDate", "received_date")),
     fileUrl: text(readValue(record, "fileUrl", "file_url")),
     receivedBy: text(readValue(record, "receivedBy", "received_by")),
@@ -260,6 +407,19 @@ function normalizeOption(value: unknown, kind: "user" | "department"): Option {
   };
 }
 
+function normalizeDocumentField(value: unknown): DocumentField {
+  const record = asRecord(value);
+  const id = record?.id;
+  const name = record?.name ?? record?.title;
+  if (
+    (typeof id !== "string" && typeof id !== "number") ||
+    typeof name !== "string"
+  ) {
+    throw new Error("Dữ liệu lĩnh vực thiếu mã hoặc tên.");
+  }
+  return { id: String(id), name };
+}
+
 function dateInput(value: string): string {
   if (!value) return "";
   const date = new Date(value);
@@ -285,12 +445,16 @@ function errorMessage(error: unknown, fallback: string): string {
 
 function statusClass(status: DocumentStatus): string {
   switch (status) {
-    case "processing":
+    case "PROCESSING":
       return "bg-blue-50 text-blue-700 ring-blue-600/15";
-    case "completed":
+    case "COMPLETED":
       return "bg-emerald-50 text-emerald-700 ring-emerald-600/15";
-    case "rejected":
+    case "ARCHIVED":
       return "bg-slate-100 text-slate-600 ring-slate-500/15";
+    case "ASSIGNED":
+      return "bg-violet-50 text-violet-700 ring-violet-600/15";
+    case "CLASSIFIED":
+      return "bg-cyan-50 text-cyan-700 ring-cyan-600/15";
     default:
       return "bg-amber-50 text-amber-700 ring-amber-600/15";
   }
@@ -371,11 +535,15 @@ const inputClass =
 export default function IncomingDocuments() {
   const { user } = useAuth();
   const [documents, setDocuments] = useState<IncomingDocument[]>([]);
+  const [documentFields, setDocumentFields] = useState<DocumentField[]>([]);
   const [users, setUsers] = useState<Option[]>([]);
   const [departments, setDepartments] = useState<Option[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingOptions, setIsLoadingOptions] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -385,61 +553,129 @@ export default function IncomingDocuments() {
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [form, setForm] = useState<DocumentForm>(emptyDocumentForm);
+  const [documentTypeQuery, setDocumentTypeQuery] = useState("");
+  const [isDocumentTypeMenuOpen, setIsDocumentTypeMenuOpen] = useState(false);
   const [assignment, setAssignment] =
     useState<AssignmentForm>(emptyAssignmentForm);
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [fieldFilter, setFieldFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalDocuments, setTotalDocuments] = useState(0);
+  const listRequestId = useRef(0);
+  const detailRequestId = useRef(0);
 
-  const loadDocuments = useCallback(async () => {
+  const loadDocuments = useCallback(async (
+    requestedPage: number,
+    search: string,
+    status: string,
+    fieldId: string,
+  ) => {
+    const requestId = ++listRequestId.current;
     setIsLoading(true);
     setError(null);
+    const params = new URLSearchParams({
+      page: String(requestedPage),
+      limit: String(pageSize),
+    });
+    if (search.trim()) params.set("search", search.trim());
+    if (status !== "all") params.set("status", status);
+    if (fieldId) params.set("fieldId", fieldId);
     try {
-      const result = readList(await apiRequest<unknown>("/documents"), "văn bản");
-      setDocuments(result.map(normalizeDocument));
+      const result = normalizeDocumentPage(
+        await apiRequest<unknown>(`/documents?${params.toString()}`),
+        requestedPage,
+        pageSize,
+      );
+      if (requestId !== listRequestId.current) return;
+      setDocuments(result.items.map(normalizeDocument));
+      setTotalDocuments(result.total);
+      setPage(result.page || requestedPage);
+      setPageSize(result.pageSize || pageSize);
     } catch (requestError) {
+      if (requestId !== listRequestId.current) return;
       setDocuments([]);
+      setTotalDocuments(0);
       setError(
         errorMessage(requestError, "Không thể tải danh sách văn bản đến."),
       );
     } finally {
-      setIsLoading(false);
+      if (requestId === listRequestId.current) setIsLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   const loadOptions = useCallback(async () => {
     setIsLoadingOptions(true);
     setOptionsError(null);
-    try {
-      const [userData, departmentData] = await Promise.all([
+    const [userResult, departmentResult, fieldResult] =
+      await Promise.allSettled([
         apiRequest<unknown>("/users"),
         apiRequest<unknown>("/departments"),
+        apiRequest<unknown>("/document-fields"),
       ]);
-      setUsers(readList(userData, "chuyên viên").map((item) => normalizeOption(item, "user")));
-      setDepartments(
-        readList(departmentData, "phòng ban").map((item) =>
-          normalizeOption(item, "department"),
-        ),
-      );
-    } catch (requestError) {
-      setOptionsError(
-        errorMessage(
-          requestError,
-          "Không thể tải danh sách chuyên viên hoặc phòng ban.",
-        ),
-      );
+    const loadErrors: string[] = [];
+    if (userResult.status === "fulfilled") {
+      try {
+        setUsers(
+          readList(userResult.value, "chuyên viên").map((item) =>
+            normalizeOption(item, "user"),
+          ),
+        );
+      } catch (requestError) {
+        setUsers([]);
+        loadErrors.push(errorMessage(requestError, "Không thể tải chuyên viên."));
+      }
+    } else {
       setUsers([]);
-      setDepartments([]);
-    } finally {
-      setIsLoadingOptions(false);
+      loadErrors.push(errorMessage(userResult.reason, "Không thể tải chuyên viên."));
     }
+    if (departmentResult.status === "fulfilled") {
+      try {
+        setDepartments(
+          readList(departmentResult.value, "phòng ban").map((item) =>
+            normalizeOption(item, "department"),
+          ),
+        );
+      } catch (requestError) {
+        setDepartments([]);
+        loadErrors.push(errorMessage(requestError, "Không thể tải phòng ban."));
+      }
+    } else {
+      setDepartments([]);
+      loadErrors.push(
+        errorMessage(departmentResult.reason, "Không thể tải phòng ban."),
+      );
+    }
+    if (fieldResult.status === "fulfilled") {
+      try {
+        setDocumentFields(
+          readList(fieldResult.value, "lĩnh vực").map(normalizeDocumentField),
+        );
+      } catch (requestError) {
+        setDocumentFields([]);
+        loadErrors.push(errorMessage(requestError, "Không thể tải lĩnh vực."));
+      }
+    } else {
+      setDocumentFields([]);
+      loadErrors.push(errorMessage(fieldResult.reason, "Không thể tải lĩnh vực."));
+    }
+    setOptionsError(loadErrors.length ? loadErrors.join(" ") : null);
+    setIsLoadingOptions(false);
   }, []);
 
   useEffect(() => {
     Promise.resolve().then(() => {
-      void loadDocuments();
       void loadOptions();
     });
-  }, [loadDocuments, loadOptions]);
+  }, [loadOptions]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadDocuments(page, keyword, statusFilter, fieldFilter);
+    }, keyword ? 300 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [fieldFilter, keyword, loadDocuments, page, statusFilter]);
 
   useEffect(() => {
     if (!notice) return;
@@ -447,33 +683,31 @@ export default function IncomingDocuments() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  const filteredDocuments = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLocaleLowerCase("vi-VN");
-    return documents.filter((document) => {
-      const matchesKeyword =
-        !normalizedKeyword ||
-        `${document.documentNo} ${document.title} ${document.issuingAgency} ${document.documentType}`
-          .toLocaleLowerCase("vi-VN")
-          .includes(normalizedKeyword);
-      return (
-        matchesKeyword &&
-        (statusFilter === "all" || document.status === statusFilter)
-      );
-    });
-  }, [documents, keyword, statusFilter]);
-
   const counts = useMemo(
     () => ({
-      all: documents.length,
-      pending: documents.filter((item) => item.status === "pending").length,
-      processing: documents.filter((item) => item.status === "processing").length,
-      completed: documents.filter((item) => item.status === "completed").length,
+      all: totalDocuments,
+      pending: documents.filter((item) => item.status === "RECEIVED").length,
+      processing: documents.filter((item) => item.status === "PROCESSING").length,
+      completed: documents.filter((item) => item.status === "COMPLETED").length,
     }),
-    [documents],
+    [documents, totalDocuments],
   );
+
+  const filteredDocumentTypes = useMemo(() => {
+    const query = documentTypeQuery.trim().toLocaleLowerCase("vi-VN");
+    if (!query) return documentTypeOptions;
+    return documentTypeOptions.filter((option) =>
+      `${option.label} ${option.value}`
+        .toLocaleLowerCase("vi-VN")
+        .includes(query),
+    );
+  }, [documentTypeQuery]);
 
   const openCreate = () => {
     setForm(emptyDocumentForm);
+    setDocumentTypeQuery("");
+    setIsDocumentTypeMenuOpen(false);
+    setSelectedFile(null);
     setFormError(null);
     setModal({ type: "form", document: null });
   };
@@ -485,16 +719,20 @@ export default function IncomingDocuments() {
       title: document.title,
       documentType: document.documentType,
       issuingAgency: document.issuingAgency,
+      fieldId: document.fieldId,
       receivedDate: dateInput(document.receivedDate),
-      fileUrl: document.fileUrl,
       receivedBy: document.receivedBy,
       status: document.status,
     });
+    setDocumentTypeQuery(documentTypeLabel(document.documentType));
+    setIsDocumentTypeMenuOpen(false);
+    setSelectedFile(null);
     setFormError(null);
     setModal({ type: "form", document });
   };
 
   const openDetail = (document: IncomingDocument) => {
+    const requestId = ++detailRequestId.current;
     setAssignment({
       ...emptyAssignmentForm,
       departmentId: document.aiAnalysis?.proposedDepartmentId ?? "",
@@ -503,11 +741,40 @@ export default function IncomingDocuments() {
       priority: document.aiAnalysis?.priority || "medium",
     });
     setAssignmentError(null);
+    setDetailError(null);
     setModal({ type: "detail", document });
+    setIsDetailLoading(true);
+    void apiRequest<unknown>(
+      `/documents/${encodeURIComponent(document.id)}`,
+    )
+      .then((response) => {
+        if (requestId !== detailRequestId.current) return;
+        const details = normalizeDocument(unwrap(response));
+        setDocuments((current) =>
+          current.map((item) => (item.id === details.id ? details : item)),
+        );
+        setModal((current) =>
+          current?.type === "detail" && current.document.id === details.id
+            ? { type: "detail", document: details }
+            : current,
+        );
+      })
+      .catch((requestError: unknown) => {
+        if (requestId !== detailRequestId.current) return;
+        setDetailError(
+          errorMessage(requestError, "Không thể tải chi tiết văn bản."),
+        );
+      })
+      .finally(() => {
+        if (requestId === detailRequestId.current) {
+          setIsDetailLoading(false);
+        }
+      });
   };
 
   const closeModal = () => {
-    if (isSaving || isAssigning) return;
+    if (isSaving || isAssigning || isDetailLoading) return;
+    detailRequestId.current += 1;
     setModal(null);
   };
 
@@ -515,6 +782,16 @@ export default function IncomingDocuments() {
     event.preventDefault();
     if (!form.documentNo.trim() || !form.title.trim()) {
       setFormError("Vui lòng nhập số văn bản và trích yếu.");
+      return;
+    }
+    if (documentTypeQuery.trim() && !form.documentType) {
+      setFormError("Vui lòng chọn loại văn bản trong danh sách gợi ý.");
+      return;
+    }
+    const editingDocument =
+      modal?.type === "form" ? modal.document : null;
+    if (!editingDocument && !selectedFile) {
+      setFormError("Vui lòng tải lên tệp văn bản.");
       return;
     }
     setIsSaving(true);
@@ -525,35 +802,67 @@ export default function IncomingDocuments() {
       title: form.title.trim(),
       documentType: form.documentType.trim(),
       issuingAgency: form.issuingAgency.trim(),
+      fieldId: form.fieldId || null,
       receivedDate: form.receivedDate || null,
-      fileUrl: form.fileUrl.trim() || null,
       receivedBy: form.receivedBy.trim() || user?.id || null,
       status: form.status,
     };
+    let metadataSaved = false;
     try {
-      const editingDocument =
-        modal?.type === "form" ? modal.document : null;
-      await apiRequest<unknown>(
-        editingDocument
-          ? `/documents/${encodeURIComponent(editingDocument.id)}`
-          : "/documents",
-        {
-          method: editingDocument ? "PUT" : "POST",
-          body: JSON.stringify(payload),
-        },
-      );
+      if (editingDocument) {
+        await apiRequest<unknown>(
+          `/documents/${encodeURIComponent(editingDocument.id)}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          },
+        );
+        metadataSaved = true;
+        if (selectedFile) {
+          const fileData = new FormData();
+          fileData.append("file", selectedFile);
+          await apiRequest<unknown>(
+            `/documents/${encodeURIComponent(editingDocument.id)}/file`,
+            { method: "POST", body: fileData },
+          );
+        }
+      } else {
+        const documentData = new FormData();
+        for (const [key, value] of Object.entries(payload)) {
+          if (value !== null && value !== "") {
+            documentData.append(key, String(value));
+          }
+        }
+        documentData.append("file", selectedFile as File);
+        await apiRequest<unknown>("/documents", {
+          method: "POST",
+          body: documentData,
+        });
+      }
       setNotice({
         type: "success",
         text: editingDocument
-          ? "Đã cập nhật văn bản."
-          : "Đã thêm văn bản mới.",
+          ? selectedFile
+            ? "Đã cập nhật văn bản và thay thế tệp đính kèm."
+            : "Đã cập nhật văn bản."
+          : "Đã thêm văn bản và tải tệp lên.",
       });
       setModal(null);
-      await loadDocuments();
+      setSelectedFile(null);
+      const nextPage = editingDocument ? page : 1;
+      setPage(nextPage);
+      await loadDocuments(nextPage, keyword, statusFilter, fieldFilter);
     } catch (requestError) {
-      const message = errorMessage(requestError, "Không thể lưu văn bản.");
-      setFormError(message);
-      setNotice({ type: "error", text: message });
+      const message = errorMessage(
+        requestError,
+        "Không thể lưu văn bản hoặc tải tệp lên.",
+      );
+      const contextualMessage =
+        metadataSaved && selectedFile
+          ? `Đã lưu thông tin văn bản nhưng chưa thay được tệp: ${message}`
+          : message;
+      setFormError(contextualMessage);
+      setNotice({ type: "error", text: contextualMessage });
     } finally {
       setIsSaving(false);
     }
@@ -577,6 +886,10 @@ export default function IncomingDocuments() {
       setDocuments((current) =>
         current.filter((item) => item.id !== document.id),
       );
+      setTotalDocuments((current) => Math.max(0, current - 1));
+      if (documents.length === 1 && page > 1) {
+        setPage((current) => current - 1);
+      }
       if (modal?.type === "detail" && modal.document.id === document.id) {
         setModal(null);
       }
@@ -624,7 +937,7 @@ export default function IncomingDocuments() {
           startDate: new Date().toISOString().slice(0, 10),
           dueDate: assignment.dueDate || null,
           priority: assignment.priority,
-          status: "pending",
+          status: "RECEIVED",
           progressPercent: 0,
           isImportant: assignment.priority === "urgent",
           isConfidential: false,
@@ -655,7 +968,9 @@ export default function IncomingDocuments() {
 
       setDocuments((current) =>
         current.map((item) =>
-          item.id === document.id ? { ...item, status: "processing" } : item,
+          item.id === document.id
+            ? { ...item, status: "PROCESSING" }
+            : item,
         ),
       );
       setModal(null);
@@ -665,9 +980,9 @@ export default function IncomingDocuments() {
       });
       await apiRequest<unknown>(`/documents/${encodeURIComponent(document.id)}`, {
         method: "PATCH",
-        body: JSON.stringify({ status: "processing" }),
+        body: JSON.stringify({ status: "PROCESSING" }),
       });
-      await loadDocuments();
+      await loadDocuments(page, keyword, statusFilter, fieldFilter);
     } catch (requestError) {
       const message = errorMessage(
         requestError,
@@ -753,9 +1068,9 @@ export default function IncomingDocuments() {
         <div className="relative mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: "Tổng văn bản", value: counts.all, icon: FileText },
-            { label: "Chờ xử lý", value: counts.pending, icon: FileSearch2 },
-            { label: "Đang xử lý", value: counts.processing, icon: UsersRound },
-            { label: "Hoàn thành", value: counts.completed, icon: CheckCircle2 },
+            { label: "Chờ xử lý · trang này", value: counts.pending, icon: FileSearch2 },
+            { label: "Đang xử lý · trang này", value: counts.processing, icon: UsersRound },
+            { label: "Hoàn thành · trang này", value: counts.completed, icon: CheckCircle2 },
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -781,17 +1096,22 @@ export default function IncomingDocuments() {
           <div>
             <h3 className="font-bold text-slate-900">Danh sách văn bản</h3>
             <p className="mt-1 text-sm text-slate-500">
-              {filteredDocuments.length} văn bản
-              {statusFilter !== "all" ? " phù hợp bộ lọc" : " trong hệ thống"}
+              {totalDocuments} văn bản
+              {keyword || statusFilter !== "all" || fieldFilter
+                ? " phù hợp điều kiện tìm kiếm"
+                : " trong hệ thống"}
             </p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <label className="relative block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
                 value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
+                onChange={(event) => {
+                  setKeyword(event.target.value);
+                  setPage(1);
+                }}
                 placeholder="Tìm số, trích yếu, cơ quan..."
                 className={`${inputClass} min-w-0 pl-9 sm:w-72`}
                 aria-label="Tìm văn bản"
@@ -799,7 +1119,10 @@ export default function IncomingDocuments() {
             </label>
             <select
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+                setPage(1);
+              }}
               className={`${inputClass} sm:w-44`}
               aria-label="Lọc theo trạng thái"
             >
@@ -807,6 +1130,23 @@ export default function IncomingDocuments() {
               {Object.entries(statusLabels).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={fieldFilter}
+              onChange={(event) => {
+                setFieldFilter(event.target.value);
+                setPage(1);
+              }}
+              className={inputClass}
+              aria-label="Lọc theo lĩnh vực"
+              disabled={!documentFields.length}
+            >
+              <option value="">Tất cả lĩnh vực</option>
+              {documentFields.map((field) => (
+                <option key={field.id} value={field.id}>
+                  {field.name}
                 </option>
               ))}
             </select>
@@ -819,7 +1159,9 @@ export default function IncomingDocuments() {
             <div className="flex-1">{error}</div>
             <button
               type="button"
-              onClick={() => void loadDocuments()}
+              onClick={() =>
+                void loadDocuments(page, keyword, statusFilter, fieldFilter)
+              }
               className="font-semibold underline underline-offset-2"
             >
               Thử lại
@@ -828,11 +1170,14 @@ export default function IncomingDocuments() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[850px] text-left text-sm">
+          <table className="w-full min-w-[1000px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-6 py-4 font-semibold">Văn bản</th>
+                <th className="w-auto px-6 py-4 font-semibold md:w-[400px] md:min-w-[400px] md:max-w-[400px]">
+                  Văn bản
+                </th>
                 <th className="px-5 py-4 font-semibold">Cơ quan ban hành</th>
+                <th className="px-5 py-4 font-semibold">Lĩnh vực</th>
                 <th className="px-5 py-4 font-semibold">Ngày nhận</th>
                 <th className="px-5 py-4 font-semibold">Trạng thái</th>
                 <th className="px-5 py-4 text-right font-semibold">Thao tác</th>
@@ -841,37 +1186,32 @@ export default function IncomingDocuments() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-16 text-center text-slate-500">
+                  <td colSpan={6} className="px-6 py-16 text-center text-slate-500">
                     <LoaderCircle className="mx-auto mb-3 h-6 w-6 animate-spin text-blue-600" />
                     Đang tải danh sách văn bản...
                   </td>
                 </tr>
-              ) : filteredDocuments.length === 0 ? (
+              ) : documents.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-16 text-center">
+                  <td colSpan={6} className="px-6 py-16 text-center">
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
                       <FileSearch2 className="h-6 w-6" />
                     </div>
                     <p className="mt-3 font-semibold text-slate-800">
-                      {documents.length ? "Không tìm thấy văn bản" : "Chưa có văn bản đến"}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {documents.length
-                        ? "Thử đổi từ khóa hoặc bộ lọc trạng thái."
-                        : "Thêm văn bản đầu tiên để bắt đầu theo dõi xử lý."}
+                      {totalDocuments ? "Không tìm thấy văn bản" : "Chưa có văn bản đến"}
                     </p>
                   </td>
                 </tr>
               ) : (
-                filteredDocuments.map((document) => (
+                documents.map((document) => (
                   <tr key={document.id} className="group hover:bg-slate-50/70">
-                    <td className="px-6 py-4">
+                    <td className="w-auto px-6 py-4 md:w-[400px] md:min-w-[400px] md:max-w-[400px]">
                       <button
                         type="button"
                         onClick={() => openDetail(document)}
-                        className="text-left"
+                        className="block w-full text-left"
                       >
-                        <span className="font-semibold text-slate-900 group-hover:text-blue-700">
+                        <span className="block break-words font-semibold text-slate-900 group-hover:text-blue-700">
                           {document.title}
                         </span>
                         <span className="mt-1 block text-xs text-slate-500">
@@ -882,6 +1222,12 @@ export default function IncomingDocuments() {
                     </td>
                     <td className="px-5 py-4 text-slate-600">
                       {document.issuingAgency || "—"}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">
+                      {document.fieldName ||
+                        documentFields.find((field) => field.id === document.fieldId)
+                          ?.name ||
+                        "—"}
                     </td>
                     <td className="px-5 py-4 text-slate-600">
                       {displayDate(document.receivedDate)}
@@ -935,12 +1281,62 @@ export default function IncomingDocuments() {
             </tbody>
           </table>
         </div>
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p className="text-xs text-slate-500">
+            {totalDocuments === 0
+              ? "Không có kết quả"
+              : `Hiển thị ${(page - 1) * pageSize + 1}–${Math.min(
+                  page * pageSize,
+                  totalDocuments,
+                )} trong ${totalDocuments} văn bản`}
+          </p>
+          <div className="flex items-center justify-between gap-2 sm:justify-end">
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              Số dòng
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                aria-label="Số văn bản mỗi trang"
+              >
+                {[10, 20, 50].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="min-w-20 text-center text-xs font-medium text-slate-600">
+              Trang {page} / {Math.max(1, Math.ceil(totalDocuments / pageSize))}
+            </span>
+            <button
+              type="button"
+              disabled={isLoading || page <= 1}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Trước
+            </button>
+            <button
+              type="button"
+              disabled={
+                isLoading || page >= Math.ceil(totalDocuments / pageSize)
+              }
+              onClick={() => setPage((current) => current + 1)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Sau
+            </button>
+          </div>
+        </div>
       </section>
 
       {modal?.type === "form" && (
         <ModalShell
           title={modal.document ? "Chỉnh sửa văn bản" : "Thêm văn bản đến"}
-          subtitle="Nhập thông tin tiếp nhận và theo dõi xử lý văn bản."
           onClose={closeModal}
           wide
         >
@@ -958,16 +1354,94 @@ export default function IncomingDocuments() {
                 />
               </Field>
               <Field label="Loại văn bản">
-                <input
-                  value={form.documentType}
-                  onChange={(event) =>
-                    setForm({ ...form, documentType: event.target.value })
-                  }
-                  className={inputClass}
-                  placeholder="Công văn, quyết định..."
-                />
+                <div className="relative">
+                  <input
+                    type="search"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={isDocumentTypeMenuOpen}
+                    aria-controls="document-type-options"
+                    aria-label="Tìm và chọn loại văn bản"
+                    autoComplete="off"
+                    value={documentTypeQuery}
+                    onFocus={() => setIsDocumentTypeMenuOpen(true)}
+                    onChange={(event) => {
+                      const query = event.target.value;
+                      setDocumentTypeQuery(query);
+                      setForm({
+                        ...form,
+                        documentType:
+                          documentTypeOptions.find(
+                            (option) =>
+                              option.label.toLocaleLowerCase("vi-VN") ===
+                                query.trim().toLocaleLowerCase("vi-VN") ||
+                              option.value.toLocaleLowerCase("vi-VN") ===
+                                query.trim().toLocaleLowerCase("vi-VN"),
+                          )?.value ?? "",
+                      });
+                      setIsDocumentTypeMenuOpen(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setIsDocumentTypeMenuOpen(false);
+                      }
+                      if (
+                        event.key === "Enter" &&
+                        isDocumentTypeMenuOpen &&
+                        filteredDocumentTypes.length === 1
+                      ) {
+                        event.preventDefault();
+                        const [option] = filteredDocumentTypes;
+                        setForm({ ...form, documentType: option.value });
+                        setDocumentTypeQuery(option.label);
+                        setIsDocumentTypeMenuOpen(false);
+                      }
+                    }}
+                    className={inputClass}
+                    placeholder="Nhập tên hoặc mã loại văn bản..."
+                  />
+                  {isDocumentTypeMenuOpen && (
+                    <div
+                      id="document-type-options"
+                      role="listbox"
+                      aria-label="Các loại văn bản"
+                      className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+                    >
+                      {filteredDocumentTypes.length ? (
+                        filteredDocumentTypes.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="option"
+                            aria-selected={form.documentType === option.value}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setForm({ ...form, documentType: option.value });
+                              setDocumentTypeQuery(option.label);
+                              setIsDocumentTypeMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+                              form.documentType === option.value
+                                ? "bg-blue-50 font-semibold text-blue-800"
+                                : "text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span>{option.label}</span>
+                            {form.documentType === option.value && (
+                              <Check className="h-4 w-4 text-blue-700" />
+                            )}
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-2 text-sm text-slate-500">
+                          Không tìm thấy loại văn bản phù hợp.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </Field>
-              <Field label="Ngày văn bản">
+              <Field label="Ngày ký">
                 <input
                   type="date"
                   value={form.documentDate}
@@ -987,8 +1461,7 @@ export default function IncomingDocuments() {
                   className={inputClass}
                 />
               </Field>
-              <div className="sm:col-span-2">
-                <Field label="Trích yếu" required>
+              <Field label="Tên văn bản" required>
                   <textarea
                     required
                     rows={3}
@@ -997,10 +1470,9 @@ export default function IncomingDocuments() {
                       setForm({ ...form, title: event.target.value })
                     }
                     className={`${inputClass} resize-y`}
-                    placeholder="Nhập nội dung tóm tắt của văn bản"
+                    placeholder="Nhập tên văn bản"
                   />
                 </Field>
-              </div>
               <Field label="Cơ quan ban hành">
                 <input
                   value={form.issuingAgency}
@@ -1010,6 +1482,27 @@ export default function IncomingDocuments() {
                   className={inputClass}
                   placeholder="Tên cơ quan ban hành"
                 />
+              </Field>
+              <Field label="Lĩnh vực">
+                <select
+                  value={form.fieldId}
+                  onChange={(event) =>
+                    setForm({ ...form, fieldId: event.target.value })
+                  }
+                  className={inputClass}
+                  disabled={!documentFields.length}
+                >
+                  <option value="">
+                    {documentFields.length
+                      ? "Chọn lĩnh vực"
+                      : "Không có lĩnh vực"}
+                  </option>
+                  {documentFields.map((field) => (
+                    <option key={field.id} value={field.id}>
+                      {field.name}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="Trạng thái">
                 <select
@@ -1030,16 +1523,63 @@ export default function IncomingDocuments() {
                 </select>
               </Field>
               <div className="sm:col-span-2">
-                <Field label="Liên kết tệp văn bản">
-                  <input
-                    type="url"
-                    value={form.fileUrl}
-                    onChange={(event) =>
-                      setForm({ ...form, fileUrl: event.target.value })
-                    }
-                    className={inputClass}
-                    placeholder="https://..."
-                  />
+                <Field
+                  label={modal.document ? "Tệp văn bản" : "Tải lên tệp văn bản"}
+                  required={!modal.document}
+                >
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 transition hover:border-blue-400 hover:bg-blue-50/40">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                          <Upload className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-800">
+                            {selectedFile?.name ??
+                              (modal.document?.fileUrl
+                                ? "Đã có tệp đính kèm"
+                                : "Chọn tệp văn bản")}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {selectedFile
+                              ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB`
+                              : modal.document
+                                ? "Chọn tệp mới nếu muốn thay thế tệp hiện tại."
+                                : "Tải tệp văn bản định dạng PDF, JPEG, PNG."}
+                          </p>
+                        </div>
+                      </div>
+                      <label className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+                        Chọn tệp
+                        <input
+                          type="file"
+                          className="sr-only"
+                          required={!modal.document && !selectedFile}
+                          onChange={(event) =>
+                            setSelectedFile(event.target.files?.[0] ?? null)
+                          }
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  {modal.document?.fileUrl && (
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                      <a
+                        href={documentFilePath(modal.document.id, "file")}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                      >
+                        Xem tệp hiện tại <ArrowUpRight className="h-3.5 w-3.5" />
+                      </a>
+                      <a
+                        href={documentFilePath(modal.document.id, "download")}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                      >
+                        Tải xuống <Download className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+                  )}
                 </Field>
               </div>
             </div>
@@ -1093,8 +1633,16 @@ export default function IncomingDocuments() {
               <dl className="grid grid-cols-2 gap-x-4 gap-y-4 rounded-2xl bg-slate-50 p-4">
                 {[
                   ["Cơ quan ban hành", modal.document.issuingAgency || "—"],
+                  [
+                    "Lĩnh vực",
+                    modal.document.fieldName ||
+                      documentFields.find(
+                        (field) => field.id === modal.document.fieldId,
+                      )?.name ||
+                      "—",
+                  ],
                   ["Loại văn bản", modal.document.documentType || "—"],
-                  ["Ngày văn bản", displayDate(modal.document.documentDate)],
+                  ["Ngày ký", displayDate(modal.document.documentDate)],
                   ["Ngày tiếp nhận", displayDate(modal.document.receivedDate)],
                   ["Người tiếp nhận", modal.document.receivedBy || "—"],
                 ].map(([label, value]) => (
@@ -1108,19 +1656,37 @@ export default function IncomingDocuments() {
                 {modal.document.fileUrl && (
                   <div className="col-span-2">
                     <dt className="text-xs font-medium text-slate-500">Tệp đính kèm</dt>
-                    <dd className="mt-1">
+                    <dd className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
                       <a
-                        href={modal.document.fileUrl}
+                        href={documentFilePath(modal.document.id, "file")}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
                       >
                         Mở tệp văn bản <ArrowUpRight className="h-4 w-4" />
                       </a>
+                      <a
+                        href={documentFilePath(modal.document.id, "download")}
+                        className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
+                      >
+                        Tải xuống <Download className="h-4 w-4" />
+                      </a>
                     </dd>
                   </div>
                 )}
               </dl>
+              {detailError && (
+                <p className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {detailError}
+                </p>
+              )}
+              {isDetailLoading && (
+                <p className="flex items-center gap-2 text-xs text-slate-500">
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  Đang tải thông tin chi tiết...
+                </p>
+              )}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -1130,17 +1696,6 @@ export default function IncomingDocuments() {
                   <Pencil className="h-4 w-4" />
                   Chỉnh sửa
                 </button>
-                {modal.document.fileUrl && (
-                  <a
-                    href={modal.document.fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <ArrowUpRight className="h-4 w-4" />
-                    Mở tệp
-                  </a>
-                )}
               </div>
             </div>
 

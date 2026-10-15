@@ -60,7 +60,10 @@ export async function apiRequest<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.body && !headers.has("Content-Type")) {
+  if (
+    typeof options.body === "string" &&
+    !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
