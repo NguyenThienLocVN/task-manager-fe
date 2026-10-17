@@ -7,9 +7,11 @@ import { useAuth } from "@/context/AuthContext";
 export default function ProtectedRoute({
   children,
   requiredPermission,
+  requiredPermissions = [],
 }: {
   children: ReactNode;
   requiredPermission?: string;
+  requiredPermissions?: string[];
 }) {
   const router = useRouter();
   const {
@@ -56,7 +58,12 @@ export default function ProtectedRoute({
     );
   }
 
-  if (requiredPermission && !hasPermission(requiredPermission)) {
+  const missingPermissions = [
+    ...(requiredPermission ? [requiredPermission] : []),
+    ...requiredPermissions,
+  ].filter((permission) => !hasPermission(permission));
+
+  if (missingPermissions.length > 0) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
         <section

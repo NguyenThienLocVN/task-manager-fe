@@ -30,6 +30,19 @@ The cookie is retained for at most seven days and never outlives the token;
 this cookie lifetime does not extend the backend token's validity.
 Production deployments must use HTTPS so the session cookie is marked Secure.
 
+## Task workflows
+
+The task dashboard and workspace reuse the authenticated NestJS API through the
+same Next.js proxy. They do not create separate user, role, organization,
+department, or document modules.
+
+The dashboard reads `GET /tasks/statistics`, `GET /tasks`, and
+`GET /tasks/my-tasks`. The task workspace uses the task, inbox, route, accept,
+delegate, assignment, progress, comments, history, submit-review, and review
+endpoints under `/tasks` (including `GET /tasks/workflow/my-inbox`). Task
+statuses are `NEW`, `ASSIGNED`, `IN_PROGRESS`, `PENDING_REVIEW`, `COMPLETED`,
+and `CANCELLED`.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

@@ -12,6 +12,7 @@ interface AdminLayoutProps {
   title: string;
   description?: string;
   requiredPermission?: string;
+  requiredPermissions?: string[];
 }
 
 const menus: {
@@ -21,6 +22,7 @@ const menus: {
     href: string;
     icon: LucideIcon;
     permission?: string;
+    permissions?: string[];
   }[];
 }[] = [
   {
@@ -39,6 +41,7 @@ const menus: {
         label: "Văn bản đến",
         href: "/quan-tri/cong-viec/van-ban-den",
         icon: FileText,
+        permission: "DOCUMENT_VIEW",
       },
       {
         label: "Nhiệm vụ",
@@ -69,11 +72,13 @@ const menus: {
         label: "Cơ quan / Tổ chức",
         href: "/quan-tri/to-chuc",
         icon: Building2,
+        permissions: ["ROLE_MANAGE", "USER_MANAGE"],
       },
       {
         label: "Phòng ban",
         href: "/quan-tri/phong-ban",
         icon: Network,
+        permissions: ["ROLE_MANAGE", "USER_MANAGE"],
       },
     ],
   },
@@ -107,6 +112,7 @@ export default function AdminLayout({
   title,
   description,
   requiredPermission,
+  requiredPermissions,
 }: AdminLayoutProps) {
   const pathname = usePathname();
   const { user, hasPermission, logout } = useAuth();
@@ -124,7 +130,10 @@ export default function AdminLayout({
   }, [mobileMenuOpen]);
 
   return (
-    <ProtectedRoute requiredPermission={requiredPermission}>
+    <ProtectedRoute
+      requiredPermission={requiredPermission}
+      requiredPermissions={requiredPermissions}
+    >
     <div className="min-h-screen bg-slate-50">
       <button
         type="button"
@@ -173,20 +182,24 @@ export default function AdminLayout({
           aria-label="Menu quản trị"
           className="flex-1 space-y-5 overflow-y-auto px-4 py-6"
         >
-          {menus.map((menu) => (
-            <div key={menu.label ?? menu.items[0].href}>
-              {menu.label && (
-                <h2 className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-white">
-                  {menu.label}
-                </h2>
-              )}
-              <div className="space-y-1">
-                {menu.items
-                  .filter(
-                    (item) =>
-                      !item.permission || hasPermission(item.permission),
-                  )
-                  .map((item) => {
+          {menus.map((menu) => {
+            const visibleItems = menu.items.filter(
+              (item) =>
+                (!item.permission || hasPermission(item.permission)) &&
+                (!item.permissions ||
+                  item.permissions.every(hasPermission)),
+            );
+            if (visibleItems.length === 0) return null;
+
+            return (
+              <div key={menu.label ?? menu.items[0].href}>
+                {menu.label && (
+                  <h2 className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-white">
+                    {menu.label}
+                  </h2>
+                )}
+                <div className="space-y-1">
+                  {visibleItems.map((item) => {
                     const active =
                       pathname === item.href ||
                       (item.href !== "/quan-tri" &&
@@ -209,9 +222,10 @@ export default function AdminLayout({
                       </Link>
                     );
                   })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
 
         <div className="border-t border-white/15 p-4">
@@ -283,7 +297,7 @@ export default function AdminLayout({
           </div>
         </header>
 
-        <main className="p-5 lg:p-8">{children}</main>
+        <main className="p-4 lg:p-6">{children}</main>
       </div>
     </div>
     </ProtectedRoute>

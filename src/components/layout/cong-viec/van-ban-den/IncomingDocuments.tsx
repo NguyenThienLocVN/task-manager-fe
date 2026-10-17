@@ -67,6 +67,7 @@ type Option = {
   name: string;
   organizationId: string;
   departmentId: string;
+  roleName?: string;
 };
 
 type DocumentField = {
@@ -92,11 +93,27 @@ type DocumentTypeOption = {
 };
 
 type AssignmentForm = {
+  assignmentMode: "department" | "direct";
   departmentId: string;
   assigneeId: string;
   dueDate: string;
   priority: Priority;
   note: string;
+};
+
+type ExistingDocumentTask = {
+  id: string;
+  departmentId: string;
+  departmentName: string;
+  assigneeId: string;
+  assigneeName: string;
+  assignedByName: string;
+  dueDate: string;
+  priority: Priority;
+  status: string;
+  routeType: string;
+  routeStatus: string;
+  detailsWarning: string;
 };
 
 type ModalState =
@@ -117,6 +134,7 @@ const emptyDocumentForm: DocumentForm = {
 };
 
 const emptyAssignmentForm: AssignmentForm = {
+  assignmentMode: "department",
   departmentId: "",
   assigneeId: "",
   dueDate: "",
@@ -138,6 +156,13 @@ const priorityLabels: Record<Priority, string> = {
   medium: "Bình thường",
   high: "Cao",
   urgent: "Khẩn",
+};
+
+const taskPriorityValues: Record<Priority, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  urgent: 5,
 };
 
 const documentTypeOptions: DocumentTypeOption[] = [
@@ -298,6 +323,56 @@ function normalizePriority(value: unknown): Priority | "" {
   return "";
 }
 
+function taskPriority(value: unknown): Priority {
+  const normalized = text(value).trim().toLowerCase();
+  if (
+    normalized === "low" ||
+    normalized === "medium" ||
+    normalized === "high" ||
+    normalized === "urgent"
+  ) {
+    return normalized;
+  }
+  if (value === null || value === undefined || normalized === "") {
+    return "medium";
+  }
+  const priority = Number(value);
+  if (!Number.isFinite(priority)) return "medium";
+  if (priority <= 1) return "low";
+  if (priority === 2) return "medium";
+  if (priority === 3 || priority === 4) return "high";
+  return "urgent";
+}
+
+function taskStatusLabel(value: string): string {
+  const labels: Record<string, string> = {
+    NEW: "Mới",
+    ASSIGNED: "Đã giao",
+    IN_PROGRESS: "Đang xử lý",
+    PENDING_REVIEW: "Chờ phê duyệt",
+    COMPLETED: "Hoàn thành",
+    CANCELLED: "Đã hủy",
+  };
+  return labels[value] ?? value;
+}
+
+function routeTypeLabel(value: string): string {
+  if (value.toUpperCase() === "DEPARTMENT") return "Giao qua phòng ban";
+  if (value.toUpperCase() === "DIRECT") return "Giao trực tiếp";
+  return value;
+}
+
+function routeStatusLabel(value: string): string {
+  const labels: Record<string, string> = {
+    PENDING: "Chờ tiếp nhận",
+    ACCEPTED: "Đã tiếp nhận",
+    COMPLETED: "Hoàn thành",
+    CANCELLED: "Đã hủy",
+    REJECTED: "Đã từ chối",
+  };
+  return labels[value.toUpperCase()] ?? value;
+}
+
 function documentTypeLabel(value: string): string {
   return (
     documentTypeOptions.find(
@@ -384,6 +459,19 @@ function normalizeOption(value: unknown, kind: "user" | "department"): Option {
   if (!record) throw new Error("Dữ liệu lựa chọn không hợp lệ.");
   const organization = asRecord(record.organization);
   const department = asRecord(record.department);
+  const rawRoles = record.roles ?? record.userRoles ?? record.user_roles;
+  const roleName =
+    kind === "user" && Array.isArray(rawRoles)
+      ? [...new Set(
+          rawRoles
+            .map((item) => {
+              const roleRecord = asRecord(item);
+              const nestedRole = asRecord(roleRecord?.role);
+              return text(nestedRole?.name ?? roleRecord?.name);
+            })
+            .filter(Boolean),
+        )].join(", ")
+      : "";
   const id = record.id;
   const name =
     kind === "user"
@@ -404,6 +492,7 @@ function normalizeOption(value: unknown, kind: "user" | "department"): Option {
     departmentId: text(
       readValue(record, "departmentId", "department_id") ?? department?.id,
     ),
+    ...(roleName ? { roleName } : {}),
   };
 }
 
@@ -543,6 +632,12 @@ export default function IncomingDocuments() {
   const [isSaving, setIsSaving] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [isAssignmentLoading, setIsAssignmentLoading] = useState(false);
+  const [existingTask, setExistingTask] =
+    useState<ExistingDocumentTask | null>(null);
+  const [assignmentLookupError, setAssignmentLookupError] = useState<
+    string | null
+  >(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -733,6 +828,9 @@ export default function IncomingDocuments() {
 
   const openDetail = (document: IncomingDocument) => {
     const requestId = ++detailRequestId.current;
+    setExistingTask(null);
+    setIsAssignmentLoading(true);
+    setAssignmentLookupError(null);
     setAssignment({
       ...emptyAssignmentForm,
       departmentId: document.aiAnalysis?.proposedDepartmentId ?? "",
@@ -770,6 +868,237 @@ export default function IncomingDocuments() {
           setIsDetailLoading(false);
         }
       });
+
+    void (async () => {
+      try {
+        let task: Record<string, unknown> | undefined;
+        const lookupErrors: string[] = [];
+        for (const endpoint of ["/tasks", "/tasks/my-tasks"]) {
+          try {
+            const params = new URLSearchParams({
+              documentId: document.id,
+              limit: "100",
+              page: "1",
+            });
+            const response = await apiRequest<unknown>(
+              `${endpoint}?${params}`,
+            );
+            task = readList(response, "nhiệm vụ")
+              .map(asRecord)
+              .find(
+                (
+                  record,
+                ): record is Record<string, unknown> =>
+                  Boolean(
+                    record &&
+                      text(readValue(record, "documentId", "document_id")) ===
+                        document.id,
+                  ),
+              );
+            if (task) break;
+          } catch (requestError) {
+            lookupErrors.push(
+              errorMessage(requestError, `Không thể tra cứu ${endpoint}.`),
+            );
+          }
+        }
+        if (requestId !== detailRequestId.current) return;
+
+        if (!task) {
+          if (lookupErrors.length === 2) {
+            throw new Error(lookupErrors.join(" "));
+          }
+          setExistingTask(null);
+          if (document.status === "PROCESSING") {
+            setAssignmentLookupError(
+              "Văn bản đang ở trạng thái xử lý nhưng API không trả về nhiệm vụ liên kết trong phạm vi tài khoản này. Hãy kiểm tra quyền xem nhiệm vụ hoặc quyền quản lý phòng ban.",
+            );
+          }
+          return;
+        }
+
+        const id = text(task.id);
+        const taskDepartment = asRecord(task.department);
+        const taskAssignee = asRecord(
+          task.responsibleUser ?? task.responsible_user ?? task.assignee,
+        );
+        const taskAssigner = asRecord(
+          task.assignedByUser ?? task.assigned_by_user ?? task.assigner,
+        );
+        const dueDate = text(readValue(task, "dueDate", "due_date"));
+        const priority = taskPriority(task.priority);
+        const status = text(task.status);
+        const detailWarnings: string[] = [];
+        const [routesResult, assignmentsResult] = await Promise.allSettled([
+          apiRequest<unknown>(`/tasks/${encodeURIComponent(id)}/routes`),
+          apiRequest<unknown>(`/tasks/${encodeURIComponent(id)}/assignments`),
+        ]);
+        if (routesResult.status === "rejected") {
+          detailWarnings.push("không tải được luồng giao việc");
+        }
+        if (assignmentsResult.status === "rejected") {
+          detailWarnings.push("không tải được danh sách chuyên viên được phân công");
+        }
+        const routes =
+          routesResult.status === "fulfilled"
+            ? readList(routesResult.value, "luồng giao việc")
+                .map(asRecord)
+                .filter(
+                  (record): record is Record<string, unknown> =>
+                    Boolean(record),
+                )
+            : [];
+        const latestRoute = [...routes].sort((left, right) => {
+          const leftTime = Date.parse(
+            text(readValue(left, "issuedAt", "issued_at")),
+          );
+          const rightTime = Date.parse(
+            text(readValue(right, "issuedAt", "issued_at")),
+          );
+          return rightTime - leftTime;
+        })[0];
+        const routeDepartment = asRecord(
+          latestRoute?.department ?? latestRoute?.assignedDepartment,
+        );
+        const routeAssignee = asRecord(
+          latestRoute?.assignee ??
+            latestRoute?.user ??
+            latestRoute?.responsibleUser,
+        );
+        const assignments =
+          assignmentsResult.status === "fulfilled"
+            ? readList(assignmentsResult.value, "phân công")
+                .map(asRecord)
+                .filter(
+                  (record): record is Record<string, unknown> =>
+                    Boolean(
+                      record &&
+                        record.isActive !== false &&
+                        record.is_active !== false,
+                    ),
+                )
+            : [];
+        const activeAssignment = assignments[0];
+        const assignmentUser = asRecord(
+          activeAssignment?.user ??
+            activeAssignment?.assignee ??
+            activeAssignment?.responsibleUser,
+        );
+        const departmentId = text(
+          readValue(task, "departmentId", "department_id") ??
+            readValue(
+              latestRoute ?? {},
+              "departmentId",
+              "department_id",
+            ) ??
+            routeDepartment?.id,
+        );
+        const assigneeId = text(
+          readValue(task, "responsibleUserId", "responsible_user_id") ??
+            taskAssignee?.id ??
+            readValue(latestRoute ?? {}, "assigneeId", "assignee_id") ??
+            routeAssignee?.id ??
+            readValue(
+              activeAssignment ?? {},
+              "userId",
+              "user_id",
+            ) ??
+            assignmentUser?.id,
+        );
+        const assignedById = text(
+          readValue(task, "assignedBy", "assigned_by") ??
+            readValue(latestRoute ?? {}, "issuedBy", "issued_by"),
+        );
+        const departmentName =
+          text(
+            taskDepartment?.name ??
+              task.departmentName ??
+              task.department_name ??
+              routeDepartment?.name ??
+              latestRoute?.departmentName ??
+              latestRoute?.department_name,
+          ) ||
+          departments.find((item) => item.id === departmentId)?.name ||
+          "";
+        const assigneeName =
+          text(
+            taskAssignee?.fullName ??
+              taskAssignee?.full_name ??
+              taskAssignee?.name ??
+              task.responsibleUserName ??
+              task.responsible_user_name ??
+              routeAssignee?.fullName ??
+              routeAssignee?.full_name ??
+              routeAssignee?.name ??
+              assignmentUser?.fullName ??
+              assignmentUser?.full_name ??
+              assignmentUser?.name ??
+              activeAssignment?.userName ??
+              activeAssignment?.user_name,
+          ) ||
+          users.find((item) => item.id === assigneeId)?.name ||
+          "";
+        const assignedByName =
+          text(
+            taskAssigner?.fullName ??
+              taskAssigner?.full_name ??
+              taskAssigner?.name ??
+              task.assignedByName ??
+              task.assigned_by_name ??
+              asRecord(latestRoute?.issuedByUser ?? latestRoute?.issued_by_user)
+                ?.fullName ??
+              asRecord(latestRoute?.issuedByUser ?? latestRoute?.issued_by_user)
+                ?.full_name ??
+              asRecord(latestRoute?.issuedByUser ?? latestRoute?.issued_by_user)
+                ?.name,
+          ) ||
+          users.find((item) => item.id === assignedById)?.name ||
+          "";
+        const routeType = text(
+          readValue(latestRoute ?? {}, "routeType", "route_type"),
+        );
+        const routeStatus = text(
+          readValue(latestRoute ?? {}, "routeStatus", "route_status"),
+        );
+        if (requestId !== detailRequestId.current) return;
+        setExistingTask({
+          id,
+          departmentId,
+          departmentName,
+          assigneeId,
+          assigneeName,
+          assignedByName,
+          dueDate,
+          priority,
+          status,
+          routeType,
+          routeStatus,
+          detailsWarning: detailWarnings.length
+            ? `Một số thông tin phân công chưa tải được: ${detailWarnings.join(", ")}.`
+            : "",
+        });
+        setAssignment((current) => ({
+          ...current,
+          departmentId: departmentId || current.departmentId,
+          assigneeId: assigneeId || current.assigneeId,
+          dueDate: dateInput(dueDate) || current.dueDate,
+          priority,
+          assignmentMode: routeType === "DIRECT" ? "direct" : "department",
+        }));
+      } catch (requestError) {
+        if (requestId !== detailRequestId.current) return;
+        setAssignmentLookupError(
+          errorMessage(
+            requestError,
+            "Không thể kiểm tra nhiệm vụ đã tạo cho văn bản.",
+          ),
+        );
+      } finally {
+        if (requestId === detailRequestId.current) {
+          setIsAssignmentLoading(false);
+        }
+      }
+    })();
   };
 
   const closeModal = () => {
@@ -906,16 +1235,46 @@ export default function IncomingDocuments() {
   const assignDocument = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (modal?.type !== "detail") return;
-    if (!assignment.assigneeId || !assignment.departmentId) {
-      setAssignmentError("Vui lòng chọn phòng ban và chuyên viên phụ trách.");
+    if (isAssignmentLoading || assignmentLookupError) {
+      setAssignmentError(
+        "Vui lòng tải được trạng thái nhiệm vụ đã liên kết trước khi phân công.",
+      );
+      return;
+    }
+    if (existingTask) {
+      setAssignmentError("Văn bản này đã có nhiệm vụ được phân công.");
+      return;
+    }
+    if (!assignment.departmentId) {
+      setAssignmentError("Vui lòng chọn phòng ban phụ trách.");
+      return;
+    }
+    if (assignment.assignmentMode === "direct" && !assignment.assigneeId) {
+      setAssignmentError("Vui lòng chọn chuyên viên phụ trách.");
+      return;
+    }
+    const startDate = dateInput(modal.document.receivedDate);
+    if (assignment.dueDate && startDate && assignment.dueDate < startDate) {
+      setAssignmentError(
+        "Hạn xử lý không được trước ngày tiếp nhận văn bản.",
+      );
       return;
     }
     setIsAssigning(true);
     setAssignmentError(null);
     let taskCreated = false;
-    let assignmentCreated = false;
+    let routeCreated = false;
     try {
       const document = modal.document;
+      const organizationId = departments.find(
+        (item) => item.id === assignment.departmentId,
+      )?.organizationId;
+      if (!organizationId) {
+        throw new Error(
+          "Không xác định được cơ quan của phòng ban đã chọn. Vui lòng tải lại danh sách phòng ban.",
+        );
+      }
+
       const taskResponse = await apiRequest<unknown>("/tasks", {
         method: "POST",
         body: JSON.stringify({
@@ -928,20 +1287,12 @@ export default function IncomingDocuments() {
             .filter(Boolean)
             .join("\n"),
           documentId: document.id,
-          organizationId:
-            departments.find((item) => item.id === assignment.departmentId)
-              ?.organizationId || null,
-          departmentId: assignment.departmentId,
-          assignedBy: user?.id ?? null,
-          responsibleUserId: assignment.assigneeId,
-          startDate: new Date().toISOString().slice(0, 10),
+          organizationId,
+          ...(startDate ? { startDate } : {}),
           dueDate: assignment.dueDate || null,
-          priority: assignment.priority,
-          status: "RECEIVED",
-          progressPercent: 0,
+          priority: taskPriorityValues[assignment.priority],
           isImportant: assignment.priority === "urgent",
           isConfidential: false,
-          createdBy: user?.id ?? null,
         }),
       });
       taskCreated = true;
@@ -949,22 +1300,26 @@ export default function IncomingDocuments() {
       const taskId = taskRecord?.id;
       if (typeof taskId !== "string" && typeof taskId !== "number") {
         throw new Error(
-          "Đã tạo nhiệm vụ nhưng API không trả về mã nhiệm vụ để ghi nhận phân công.",
+          "Đã tạo nhiệm vụ nhưng API không trả về mã nhiệm vụ để giao cho chuyên viên.",
         );
       }
 
-      await apiRequest<unknown>("/task-assignments", {
-        method: "POST",
-        body: JSON.stringify({
-          taskId: String(taskId),
-          userId: assignment.assigneeId,
-          assignmentType: "responsible",
-          assignedBy: user?.id ?? null,
-          note: assignment.note.trim() || null,
-          isActive: true,
-        }),
-      });
-      assignmentCreated = true;
+      await apiRequest<unknown>(
+        `/tasks/${encodeURIComponent(String(taskId))}/route`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            routeType:
+              assignment.assignmentMode === "direct" ? "DIRECT" : "DEPARTMENT",
+            departmentId: assignment.departmentId,
+            ...(assignment.assignmentMode === "direct"
+              ? { assigneeId: assignment.assigneeId }
+              : {}),
+            note: assignment.note.trim() || null,
+          }),
+        },
+      );
+      routeCreated = true;
 
       setDocuments((current) =>
         current.map((item) =>
@@ -976,7 +1331,10 @@ export default function IncomingDocuments() {
       setModal(null);
       setNotice({
         type: "success",
-        text: "Đã tạo nhiệm vụ và phân công cho chuyên viên.",
+        text:
+          assignment.assignmentMode === "direct"
+            ? "Đã tạo nhiệm vụ và phân công trực tiếp cho chuyên viên."
+            : "Đã tạo nhiệm vụ và chuyển đến phòng ban.",
       });
       await apiRequest<unknown>(`/documents/${encodeURIComponent(document.id)}`, {
         method: "PATCH",
@@ -988,10 +1346,10 @@ export default function IncomingDocuments() {
         requestError,
         "Không thể hoàn tất phân công văn bản.",
       );
-      const contextualMessage = assignmentCreated
+      const contextualMessage = routeCreated
         ? `Nhiệm vụ đã được phân công nhưng trạng thái văn bản chưa đồng bộ: ${message}`
         : taskCreated
-          ? `Nhiệm vụ đã được tạo nhưng chưa ghi nhận đầy đủ phân công: ${message}`
+          ? `Nhiệm vụ đã được tạo nhưng chưa hoàn tất phân công: ${message}`
           : message;
       setAssignmentError(contextualMessage);
       setNotice({ type: "error", text: contextualMessage });
@@ -1017,6 +1375,10 @@ export default function IncomingDocuments() {
     (item) =>
       !item.departmentId || item.departmentId === assignment.departmentId,
   );
+  const receivedByUser =
+    modal?.type === "detail"
+      ? users.find((item) => item.id === modal.document.receivedBy)
+      : undefined;
 
   return (
     <div className="space-y-6">
@@ -1046,12 +1408,12 @@ export default function IncomingDocuments() {
         </div>
       )}
 
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e3060] via-[#124987] to-[#2775c7] px-6 py-7 text-white shadow-lg shadow-blue-950/10 sm:px-5 sm:py-5">
+      <section className="relative overflow-hidden rounded-3xl px-2 py-2 text-white sm:px-2 sm:py-2">
         <div className="absolute -right-12 -top-16 h-64 w-64 rounded-full border border-white/10" />
         <div className="absolute -right-3 -top-7 h-44 w-44 rounded-full border border-white/10" />
         <div className="relative flex flex-col gap-6 sm:flex-row sm:justify-between items-center">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-blue-50">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-gradient-to-br from-[#0e3060] via-[#124987] to-[#2775c7] px-3 py-1.5 text-xs font-semibold text-blue-50">
               <Sparkles className="h-4 w-4 text-amber-300" />
               TRUNG TÂM ĐIỀU PHỐI VĂN BẢN
             </div>
@@ -1076,7 +1438,7 @@ export default function IncomingDocuments() {
             return (
               <div
                 key={item.label}
-                className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm"
+                className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm bg-gradient-to-br from-[#0e3060] via-[#124987] to-[#2775c7]" 
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-blue-100">
@@ -1089,249 +1451,249 @@ export default function IncomingDocuments() {
             );
           })}
         </div>
-      </section>
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div>
-            <h3 className="font-bold text-slate-900">Danh sách văn bản</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              {totalDocuments} văn bản
-              {keyword || statusFilter !== "all" || fieldFilter
-                ? " phù hợp điều kiện tìm kiếm"
-                : " trong hệ thống"}
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={keyword}
-                onChange={(event) => {
-                  setKeyword(event.target.value);
-                  setPage(1);
-                }}
-                placeholder="Tìm số, trích yếu, cơ quan..."
-                className={`${inputClass} min-w-0 pl-9 sm:w-72`}
-                aria-label="Tìm văn bản"
-              />
-            </label>
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                setStatusFilter(event.target.value);
-                setPage(1);
-              }}
-              className={`${inputClass} sm:w-44`}
-              aria-label="Lọc theo trạng thái"
-            >
-              <option value="all">Tất cả trạng thái</option>
-              {Object.entries(statusLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={fieldFilter}
-              onChange={(event) => {
-                setFieldFilter(event.target.value);
-                setPage(1);
-              }}
-              className={inputClass}
-              aria-label="Lọc theo lĩnh vực"
-              disabled={!documentFields.length}
-            >
-              <option value="">Tất cả lĩnh vực</option>
-              {documentFields.map((field) => (
-                <option key={field.id} value={field.id}>
-                  {field.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {error && (
-          <div className="m-4 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 sm:m-6">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-            <div className="flex-1">{error}</div>
-            <button
-              type="button"
-              onClick={() =>
-                void loadDocuments(page, keyword, statusFilter, fieldFilter)
-              }
-              className="font-semibold underline underline-offset-2"
-            >
-              Thử lại
-            </button>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="w-auto px-6 py-4 font-semibold md:w-[400px] md:min-w-[400px] md:max-w-[400px]">
-                  Văn bản
-                </th>
-                <th className="px-5 py-4 font-semibold">Cơ quan ban hành</th>
-                <th className="px-5 py-4 font-semibold">Lĩnh vực</th>
-                <th className="px-5 py-4 font-semibold">Ngày nhận</th>
-                <th className="px-5 py-4 font-semibold">Trạng thái</th>
-                <th className="px-5 py-4 text-right font-semibold">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center text-slate-500">
-                    <LoaderCircle className="mx-auto mb-3 h-6 w-6 animate-spin text-blue-600" />
-                    Đang tải danh sách văn bản...
-                  </td>
-                </tr>
-              ) : documents.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                      <FileSearch2 className="h-6 w-6" />
-                    </div>
-                    <p className="mt-3 font-semibold text-slate-800">
-                      {totalDocuments ? "Không tìm thấy văn bản" : "Chưa có văn bản đến"}
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                documents.map((document) => (
-                  <tr key={document.id} className="group hover:bg-slate-50/70">
-                    <td className="w-auto px-6 py-4 md:w-[400px] md:min-w-[400px] md:max-w-[400px]">
-                      <button
-                        type="button"
-                        onClick={() => openDetail(document)}
-                        className="block w-full text-left"
-                      >
-                        <span className="block break-words font-semibold text-slate-900 group-hover:text-blue-700">
-                          {document.title}
-                        </span>
-                        <span className="mt-1 block text-xs text-slate-500">
-                          {document.documentNo || "Chưa có số"} ·{" "}
-                          {document.documentType || "Chưa phân loại"}
-                        </span>
-                      </button>
-                    </td>
-                    <td className="px-5 py-4 text-slate-600">
-                      {document.issuingAgency || "—"}
-                    </td>
-                    <td className="px-5 py-4 text-slate-600">
-                      {document.fieldName ||
-                        documentFields.find((field) => field.id === document.fieldId)
-                          ?.name ||
-                        "—"}
-                    </td>
-                    <td className="px-5 py-4 text-slate-600">
-                      {displayDate(document.receivedDate)}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusClass(document.status)}`}
-                      >
-                        {statusLabels[document.status]}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openDetail(document)}
-                          className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
-                          aria-label={`Xem chi tiết ${document.documentNo || document.title}`}
-                          title="Xem chi tiết"
-                        >
-                          <FileSearch2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEdit(document)}
-                          className="rounded-lg p-2 text-slate-500 hover:bg-amber-50 hover:text-amber-700"
-                          aria-label={`Sửa ${document.documentNo || document.title}`}
-                          title="Chỉnh sửa"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteDocument(document)}
-                          disabled={pendingDeleteId === document.id}
-                          className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
-                          aria-label={`Xóa ${document.documentNo || document.title}`}
-                          title="Xóa"
-                        >
-                          {pendingDeleteId === document.id ? (
-                            <LoaderCircle className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p className="text-xs text-slate-500">
-            {totalDocuments === 0
-              ? "Không có kết quả"
-              : `Hiển thị ${(page - 1) * pageSize + 1}–${Math.min(
-                  page * pageSize,
-                  totalDocuments,
-                )} trong ${totalDocuments} văn bản`}
-          </p>
-          <div className="flex items-center justify-between gap-2 sm:justify-end">
-            <label className="flex items-center gap-2 text-xs text-slate-500">
-              Số dòng
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm sm:mt-6">
+          <div className="flex flex-col gap-4 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div>
+              <h3 className="font-bold text-slate-900">Danh sách văn bản</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                {totalDocuments} văn bản
+                {keyword || statusFilter !== "all" || fieldFilter
+                  ? " phù hợp điều kiện tìm kiếm"
+                  : " trong hệ thống"}
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={keyword}
+                  onChange={(event) => {
+                    setKeyword(event.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Tìm số, trích yếu, cơ quan..."
+                  className={`${inputClass} min-w-0 pl-9 sm:w-72`}
+                  aria-label="Tìm văn bản"
+                />
+              </label>
               <select
-                value={pageSize}
+                value={statusFilter}
                 onChange={(event) => {
-                  setPageSize(Number(event.target.value));
+                  setStatusFilter(event.target.value);
                   setPage(1);
                 }}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
-                aria-label="Số văn bản mỗi trang"
+                className={`${inputClass} sm:w-44`}
+                aria-label="Lọc theo trạng thái"
               >
-                {[10, 20, 50].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
+                <option value="all">Tất cả trạng thái</option>
+                {Object.entries(statusLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
                   </option>
                 ))}
               </select>
-            </label>
-            <span className="min-w-20 text-center text-xs font-medium text-slate-600">
-              Trang {page} / {Math.max(1, Math.ceil(totalDocuments / pageSize))}
-            </span>
-            <button
-              type="button"
-              disabled={isLoading || page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Trước
-            </button>
-            <button
-              type="button"
-              disabled={
-                isLoading || page >= Math.ceil(totalDocuments / pageSize)
-              }
-              onClick={() => setPage((current) => current + 1)}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Sau
-            </button>
+              <select
+                value={fieldFilter}
+                onChange={(event) => {
+                  setFieldFilter(event.target.value);
+                  setPage(1);
+                }}
+                className={inputClass}
+                aria-label="Lọc theo lĩnh vực"
+                disabled={!documentFields.length}
+              >
+                <option value="">Tất cả lĩnh vực</option>
+                {documentFields.map((field) => (
+                  <option key={field.id} value={field.id}>
+                    {field.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
+
+          {error && (
+            <div className="m-4 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 sm:m-6">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div className="flex-1">{error}</div>
+              <button
+                type="button"
+                onClick={() =>
+                  void loadDocuments(page, keyword, statusFilter, fieldFilter)
+                }
+                className="font-semibold underline underline-offset-2"
+              >
+                Thử lại
+              </button>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1000px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="w-auto px-6 py-2 font-semibold md:w-[400px] md:min-w-[400px] md:max-w-[400px]">
+                    Văn bản
+                  </th>
+                  <th className="px-5 py-2 font-semibold">Cơ quan ban hành</th>
+                  <th className="px-5 py-2 font-semibold">Lĩnh vực</th>
+                  <th className="px-5 py-2 font-semibold">Ngày nhận</th>
+                  <th className="px-5 py-2 font-semibold">Trạng thái</th>
+                  <th className="px-5 py-2 text-right font-semibold">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-16 text-center text-slate-500">
+                      <LoaderCircle className="mx-auto mb-3 h-6 w-6 animate-spin text-blue-600" />
+                      Đang tải danh sách văn bản...
+                    </td>
+                  </tr>
+                ) : documents.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-16 text-center">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                        <FileSearch2 className="h-6 w-6" />
+                      </div>
+                      <p className="mt-3 font-semibold text-slate-800">
+                        {totalDocuments ? "Không tìm thấy văn bản" : "Chưa có văn bản đến"}
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  documents.map((document) => (
+                    <tr key={document.id} className="group hover:bg-slate-50/70">
+                      <td className="w-auto px-6 py-2 md:w-[400px] md:min-w-[400px] md:max-w-[400px]">
+                        <button
+                          type="button"
+                          onClick={() => openDetail(document)}
+                          className="block w-full text-left"
+                        >
+                          <span className="block break-words font-semibold text-slate-900 group-hover:text-blue-700">
+                            {document.title}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-500">
+                            {document.documentNo || "Chưa có số"} ·{" "}
+                            {document.documentType || "Chưa phân loại"}
+                          </span>
+                        </button>
+                      </td>
+                      <td className="px-5 py-2 text-slate-600">
+                        {document.issuingAgency || "—"}
+                      </td>
+                      <td className="px-5 py-2 text-slate-600">
+                        {document.fieldName ||
+                          documentFields.find((field) => field.id === document.fieldId)
+                            ?.name ||
+                          "—"}
+                      </td>
+                      <td className="px-5 py-2 text-slate-600">
+                        {displayDate(document.receivedDate)}
+                      </td>
+                      <td className="px-5 py-2">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusClass(document.status)}`}
+                        >
+                          {statusLabels[document.status]}
+                        </span>
+                      </td>
+                      <td className="px-5 py-2">
+                        <div className="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openDetail(document)}
+                            className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
+                            aria-label={`Xem chi tiết ${document.documentNo || document.title}`}
+                            title="Xem chi tiết"
+                          >
+                            <FileSearch2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(document)}
+                            className="rounded-lg p-2 text-slate-500 hover:bg-amber-50 hover:text-amber-700"
+                            aria-label={`Sửa ${document.documentNo || document.title}`}
+                            title="Chỉnh sửa"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteDocument(document)}
+                            disabled={pendingDeleteId === document.id}
+                            className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
+                            aria-label={`Xóa ${document.documentNo || document.title}`}
+                            title="Xóa"
+                          >
+                            {pendingDeleteId === document.id ? (
+                              <LoaderCircle className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <p className="text-xs text-slate-500">
+              {totalDocuments === 0
+                ? "Không có kết quả"
+                : `Hiển thị ${(page - 1) * pageSize + 1}–${Math.min(
+                    page * pageSize,
+                    totalDocuments,
+                  )} trong ${totalDocuments} văn bản`}
+            </p>
+            <div className="flex items-center justify-between gap-2 sm:justify-end">
+              <label className="flex items-center gap-2 text-xs text-slate-500">
+                Số dòng
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                  aria-label="Số văn bản mỗi trang"
+                >
+                  {[10, 20, 50].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="min-w-20 text-center text-xs font-medium text-slate-600">
+                Trang {page} / {Math.max(1, Math.ceil(totalDocuments / pageSize))}
+              </span>
+              <button
+                type="button"
+                disabled={isLoading || page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Trước
+              </button>
+              <button
+                type="button"
+                disabled={
+                  isLoading || page >= Math.ceil(totalDocuments / pageSize)
+                }
+                onClick={() => setPage((current) => current + 1)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Sau
+              </button>
+            </div>
+          </div>
+        </section>
       </section>
 
       {modal?.type === "form" && (
@@ -1644,7 +2006,10 @@ export default function IncomingDocuments() {
                   ["Loại văn bản", modal.document.documentType || "—"],
                   ["Ngày ký", displayDate(modal.document.documentDate)],
                   ["Ngày tiếp nhận", displayDate(modal.document.receivedDate)],
-                  ["Người tiếp nhận", modal.document.receivedBy || "—"],
+                  [
+                    "Người tiếp nhận",
+                    receivedByUser?.name || modal.document.receivedBy || "—",
+                  ],
                 ].map(([label, value]) => (
                   <div key={label} className="col-span-2 sm:col-span-1">
                     <dt className="text-xs font-medium text-slate-500">{label}</dt>
@@ -1714,13 +2079,11 @@ export default function IncomingDocuments() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-bold text-slate-900">Phân công xử lý</h3>
                         <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700">
-                          <Sparkles className="h-3 w-3" />
-                          Sẵn sàng cho AI
+                          <Sparkles className="h-3 w-3" /> Tích hợp AI
                         </span>
                       </div>
                       <p className="mt-1 text-xs leading-5 text-slate-600">
-                        Gợi ý thông minh sẽ xuất hiện tại đây. Bạn luôn có thể
-                        rà soát và xác nhận trước khi giao việc.
+                        Chọn giao cho phòng ban để trưởng phòng tiếp nhận và phân công sau, hoặc chọn chuyên viên để giao trực tiếp.
                       </p>
                     </div>
                   </div>
@@ -1755,8 +2118,47 @@ export default function IncomingDocuments() {
                 ) : (
                   <div className="mt-4 flex items-start gap-2 rounded-2xl border border-dashed border-indigo-200 bg-white/60 p-3 text-xs leading-5 text-slate-600">
                     <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
-                    Chưa có kết quả phân tích AI cho văn bản này. Form đã sẵn sàng
-                    để kết nối gợi ý phòng ban, chuyên viên và hạn xử lý.
+                    Chưa có kết quả phân tích AI cho văn bản này.
+                  </div>
+                )}
+
+                {isAssignmentLoading && (
+                  <p className="mt-3 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    Đang kiểm tra nhiệm vụ đã liên kết với văn bản...
+                  </p>
+                )}
+                {assignmentLookupError && (
+                  <p className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs leading-5 text-rose-700">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="flex-1">
+                      Không thể kiểm tra phân công trước đó: {assignmentLookupError}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openDetail(modal.document)}
+                      className="shrink-0 font-bold underline"
+                    >
+                      Thử lại
+                    </button>
+                  </p>
+                )}
+                {existingTask && (
+                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-emerald-900">
+                        Văn bản đã được phân công
+                      </p>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
+                        {taskStatusLabel(existingTask.status) || "Đang cập nhật"}
+                      </span>
+                    </div>  
+                    {existingTask.detailsWarning && (
+                      <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        {existingTask.detailsWarning}
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -1787,7 +2189,7 @@ export default function IncomingDocuments() {
                         })
                       }
                       className={`${inputClass} border-indigo-100 bg-white/90`}
-                      disabled={isLoadingOptions}
+                      disabled={isLoadingOptions || Boolean(existingTask)}
                     >
                       <option value="">Chọn phòng ban</option>
                       {departments.map((department) => (
@@ -1797,34 +2199,104 @@ export default function IncomingDocuments() {
                       ))}
                     </select>
                   </Field>
-                  <Field label="Chuyên viên nhận việc" required>
-                    <div className="relative">
-                      <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
-                      <select
-                        required
-                        value={assignment.assigneeId}
-                        onChange={(event) =>
+                  <fieldset className="space-y-2">
+                    <legend className="mb-2 text-sm font-medium text-slate-700">
+                      Hình thức phân công
+                    </legend>
+                    <label
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${
+                        assignment.assignmentMode === "department"
+                          ? "border-indigo-300 bg-indigo-50"
+                          : "border-slate-200 bg-white/80"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="documentAssignmentMode"
+                        value="department"
+                        checked={assignment.assignmentMode === "department"}
+                        onChange={() =>
                           setAssignment({
                             ...assignment,
-                            assigneeId: event.target.value,
+                            assignmentMode: "department",
                           })
                         }
-                        className={`${inputClass} border-indigo-100 bg-white/90 pl-9`}
-                        disabled={!assignment.departmentId || isLoadingOptions}
-                      >
-                        <option value="">
-                          {assignment.departmentId
-                            ? "Chọn chuyên viên"
-                            : "Chọn phòng ban trước"}
-                        </option>
-                        {eligibleUsers.map((specialist) => (
-                          <option key={specialist.id} value={specialist.id}>
-                            {specialist.name}
+                        disabled={Boolean(existingTask)}
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-800">
+                          Phân công theo phòng ban
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-600">
+                          Trưởng phòng nhận nhiệm vụ và phân công chuyên viên sau.
+                        </span>
+                      </span>
+                    </label>
+                    <label
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${
+                        assignment.assignmentMode === "direct"
+                          ? "border-indigo-300 bg-indigo-50"
+                          : "border-slate-200 bg-white/80"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="documentAssignmentMode"
+                        value="direct"
+                        checked={assignment.assignmentMode === "direct"}
+                        onChange={() =>
+                          setAssignment({
+                            ...assignment,
+                            assignmentMode: "direct",
+                          })
+                        }
+                        disabled={Boolean(existingTask)}
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-800">
+                          Phân công cụ thể chuyên viên
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-600">
+                          Giao trực tiếp cho cán bộ phụ trách.
+                        </span>
+                      </span>
+                    </label>
+                  </fieldset>
+                  {assignment.assignmentMode === "direct" && (
+                    <Field label="Cán bộ phụ trách" required>
+                      <div className="relative">
+                        <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
+                        <select
+                          required
+                          value={assignment.assigneeId}
+                          onChange={(event) =>
+                            setAssignment({
+                              ...assignment,
+                              assigneeId: event.target.value,
+                            })
+                          }
+                          className={`${inputClass} border-indigo-100 bg-white/90 pl-9`}
+                          disabled={
+                            !assignment.departmentId ||
+                            isLoadingOptions ||
+                            Boolean(existingTask)
+                          }
+                        >
+                          <option value="">
+                            {assignment.departmentId
+                              ? "Chọn chuyên viên"
+                              : "Chọn phòng ban trước"}
                           </option>
-                        ))}
-                      </select>
-                    </div>
-                  </Field>
+                          {eligibleUsers.map((specialist) => (
+                            <option key={specialist.id} value={specialist.id}>
+                              {specialist.name} -{" "}
+                              {specialist.roleName || "Chưa gán vai trò"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </Field>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Hạn xử lý">
                       <div className="relative">
@@ -1839,6 +2311,7 @@ export default function IncomingDocuments() {
                             })
                           }
                           className={`${inputClass} border-indigo-100 bg-white/90 pl-9`}
+                          disabled={Boolean(existingTask)}
                         />
                       </div>
                     </Field>
@@ -1852,6 +2325,7 @@ export default function IncomingDocuments() {
                           })
                         }
                         className={`${inputClass} border-indigo-100 bg-white/90`}
+                        disabled={Boolean(existingTask)}
                       >
                         {Object.entries(priorityLabels).map(([value, label]) => (
                           <option key={value} value={value}>
@@ -1869,7 +2343,8 @@ export default function IncomingDocuments() {
                         setAssignment({ ...assignment, note: event.target.value })
                       }
                       className={`${inputClass} resize-y border-indigo-100 bg-white/90`}
-                      placeholder="Yêu cầu hoặc lưu ý cho chuyên viên"
+                      placeholder="Yêu cầu hoặc lưu ý"
+                      disabled={Boolean(existingTask)}
                     />
                   </Field>
                 </div>
@@ -1881,7 +2356,14 @@ export default function IncomingDocuments() {
                 )}
                 <button
                   type="submit"
-                  disabled={isAssigning || isLoadingOptions || users.length === 0}
+                  disabled={
+                    isAssigning ||
+                    isLoadingOptions ||
+                    isAssignmentLoading ||
+                    Boolean(assignmentLookupError) ||
+                    Boolean(existingTask) ||
+                    users.length === 0
+                  }
                   className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isAssigning ? (
@@ -1889,11 +2371,12 @@ export default function IncomingDocuments() {
                   ) : (
                     <UsersRound className="h-4 w-4" />
                   )}
-                  {isAssigning ? "Đang tạo nhiệm vụ..." : "Xác nhận phân công"}
+                  {isAssigning
+                    ? "Đang tạo nhiệm vụ..."
+                    : existingTask
+                      ? "Văn bản đã được phân công"
+                      : "Xác nhận phân công"}
                 </button>
-                <p className="mt-2 text-center text-[11px] leading-4 text-slate-500">
-                  Thao tác này tạo nhiệm vụ xử lý và ghi nhận chuyên viên phụ trách.
-                </p>
               </div>
             </form>
           </div>

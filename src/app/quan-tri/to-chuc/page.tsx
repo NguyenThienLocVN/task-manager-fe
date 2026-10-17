@@ -11,6 +11,7 @@ export default function OrganizationsPage() {
     <AdminLayout
       title="Quản lý cơ quan / đơn vị"
       description="Thông tin cơ quan sử dụng hệ thống."
+      requiredPermissions={["ROLE_MANAGE", "USER_MANAGE"]}
     >
       <OrganizationManagement />
     </AdminLayout>

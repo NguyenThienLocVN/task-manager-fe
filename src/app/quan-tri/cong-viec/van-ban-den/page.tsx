@@ -11,6 +11,7 @@ export default function IncomingDocumentsPage() {
     <AdminLayout
       title="Văn bản đến"
       description="Tiếp nhận, theo dõi và phân công xử lý văn bản đến."
+      requiredPermission="DOCUMENT_VIEW"
     >
       <IncomingDocuments />
     </AdminLayout>

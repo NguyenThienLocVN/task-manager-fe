@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ChevronDown, Info, KeyRound, Pencil, Plus, Power, Search, SlidersHorizontal, Trash2, UserRound, UsersRound, X, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Info, KeyRound, Pencil, Plus, Power, Search, SlidersHorizontal, Trash2, UserRound, X, XCircle } from "lucide-react";
 import { apiRequest as requestApi } from "@/lib/auth/api";
 
 type Option = {
@@ -624,10 +624,6 @@ export default function UserManagement() {
         </div>
       )}
 
-      <div className="mb-6 max-w-sm">
-        <SummaryCard label="Tổng số người dùng" value={users.length} icon={UsersRound} />
-      </div>
-
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -906,7 +902,7 @@ export default function UserManagement() {
         </div>
         {!isLoading && users.length > 0 && (
           <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-            Hiển thị {users.length} người dùng.
+            Hiển thị <b>{users.length}</b> người dùng.
           </div>
         )}
       </section>
@@ -978,8 +974,9 @@ export default function UserManagement() {
                   placeholder="VD: Nhân viên / Chuyên viên, Trưởng phòng, ..."
                 />
               </FormField>
-              <FormField label="Email">
+              <FormField label="Email" required>
                 <input
+                  required
                   type="email"
                   maxLength={255}
                   value={form.email}
@@ -1170,28 +1167,6 @@ export default function UserManagement() {
         </ModalShell>
       )}
     </>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: number;
-  icon: typeof UsersRound;
-}) {
-  return (
-    <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-        <Icon className="h-6 w-6" />
-      </div>
-      <div>
-        <p className="text-sm text-slate-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
-      </div>
-    </div>
   );
 }
 
