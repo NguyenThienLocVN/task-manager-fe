@@ -37,11 +37,12 @@ export default function LoginForm() {
     const formData = new FormData(event.currentTarget);
     const username = String(formData.get("username") ?? "").trim();
     const password = String(formData.get("password") ?? "");
+    const rememberMe = formData.get("rememberMe") === "on";
 
     try {
       setLoading(true);
       setError(null);
-      await login(username, password);
+      await login(username, password, rememberMe);
       router.replace("/quan-tri");
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
@@ -124,6 +125,15 @@ export default function LoginForm() {
           </button>
         </div>
       </div>
+
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input
+          name="rememberMe"
+          type="checkbox"
+          className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+        />
+        <span>Ghi nhớ đăng nhập</span>
+      </label>
 
       {error && (
         <p

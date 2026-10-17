@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AUTH_SESSION_EXPIRED_EVENT,
   apiRequest,
   ApiError,
   AuthUser,
@@ -26,7 +27,11 @@ type AuthContextValue = {
   loading: boolean;
   restoreError: string | null;
   logoutError: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (
+    username: string,
+    password: string,
+    rememberMe: boolean,
+  ) => Promise<void>;
   logout: () => Promise<void>;
   retrySessionRestore: () => Promise<void>;
   getCurrentUser: () => Promise<AuthUser>;
@@ -42,6 +47,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      setRestoreError(null);
+      setLoading(false);
+      router.replace("/dang-nhap");
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () =>
+      window.removeEventListener(
+        AUTH_SESSION_EXPIRED_EVENT,
+        handleSessionExpired,
+      );
+  }, [router]);
 
   const getCurrentUser = useCallback(async () => {
     const currentUser = await apiRequest<AuthUser>("/auth/me");
@@ -91,11 +111,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [retrySessionRestore]);
 
   const login = useCallback(
-    async (username: string, password: string) => {
+    async (username: string, password: string, rememberMe: boolean) => {
       setRestoreError(null);
       const result = await apiRequest<LoginResponse>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        credentials: "include",
+        body: JSON.stringify({ username, password, rememberMe }),
       });
 
       if (!result.user) {

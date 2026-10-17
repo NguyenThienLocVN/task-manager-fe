@@ -1083,6 +1083,7 @@ export default function IncomingDocuments() {
           assigneeId: assigneeId || current.assigneeId,
           dueDate: dateInput(dueDate) || current.dueDate,
           priority,
+          note: text(readValue(latestRoute ?? {}, "note", "note")),
           assignmentMode: routeType === "DIRECT" ? "direct" : "department",
         }));
       } catch (requestError) {

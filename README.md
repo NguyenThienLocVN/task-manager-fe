@@ -23,11 +23,17 @@ Set `BACKEND_URL` in `.env` to the NestJS API base URL (for example,
 the backend access token in an `HttpOnly`, `SameSite=Lax` cookie; browser
 JavaScript does not receive or persist the token.
 
-The backend must provide `POST /auth/login`, `GET /auth/me`, and
-`POST /auth/logout`. Without an access-token refresh endpoint, a session lasts
-only until the access token expires, after which the user must log in again.
-The cookie is retained for at most seven days and never outlives the token;
-this cookie lifetime does not extend the backend token's validity.
+The backend must provide `POST /auth/login`, `POST /auth/refresh`,
+`GET /auth/me`, and `POST /auth/logout`. Login must issue an `HttpOnly`
+`refresh_token` cookie. The frontend refreshes the access token when restoring
+a session or retrying a request rejected with `401`; an invalid or expired
+refresh token sends the user back to login.
+
+“Ghi nhớ đăng nhập” keeps the refresh cookie for at most 15 days from login;
+without it, the limit is seven days. Refreshing access tokens does not extend
+that deadline. Access-token cookies never outlive the token or the session
+deadline. Production deployments must use HTTPS so the session cookies are
+marked Secure.
 Production deployments must use HTTPS so the session cookie is marked Secure.
 
 ## Task workflows

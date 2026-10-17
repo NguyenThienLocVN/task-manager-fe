@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   callBackend,
   clearAccessCookie,
+  clearRefreshCookie,
+  clearSessionExpiryCookie,
   errorResponse,
   isSameOriginRequest,
   readAccessToken,
@@ -42,5 +44,7 @@ export async function POST(request: NextRequest) {
   }
 
   clearAccessCookie(response);
+  clearRefreshCookie(response);
+  clearSessionExpiryCookie(response);
   return response;
 }
