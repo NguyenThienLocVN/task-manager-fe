@@ -50,7 +50,7 @@ const menus: {
       },
       {
         label: "Báo cáo",
-        href: "/quan-tri/cong-viec/bao-cao",
+        href: "/quan-tri/bao-cao",
         icon: BarChart3,
       },
     ],
@@ -60,7 +60,7 @@ const menus: {
     items: [
       {
         label: "KPI cá nhân",
-        href: "/quan-tri/cong-viec/kpi",
+        href: "/quan-tri/kpi-ca-nhan",
         icon: Target,
       },
     ],
