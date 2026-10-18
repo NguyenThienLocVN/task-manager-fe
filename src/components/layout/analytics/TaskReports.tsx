@@ -1,46 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AlertCircle,
-  AlertTriangle,
-  BarChart3,
-  Building2,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardList,
-  Clock3,
-  LoaderCircle,
-  Search,
-  UserRound,
-  X,
-} from "lucide-react";
+import { AlertCircle, AlertTriangle, BarChart3, Building2, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, LoaderCircle, Search, UserRound, X } from "lucide-react";
 import { apiRequest } from "@/lib/auth/api";
 import AnalyticsFilters from "./AnalyticsFilters";
-import {
-  AnalyticsFilters as Filters,
-  AnalyticsOption,
-  AnalyticsTask,
-  asRecord,
-  buildFilterParams,
-  dateLabel,
-  dateRangeError,
-  EMPTY_FILTERS,
-  isOverdue,
-  normalizeOption,
-  normalizeTask,
-  priorityLabel,
-  read,
-  readList,
-  STATUS_BADGES,
-  STATUS_COLORS,
-  STATUS_LABELS,
-  TASK_STATUSES,
-  TaskStatus,
-  text,
-  unwrap,
-} from "./analytics";
+import { AnalyticsFilters as Filters, AnalyticsOption, AnalyticsTask, asRecord, buildFilterParams, dateLabel, dateRangeError, EMPTY_FILTERS, isOverdue, normalizeOption, normalizeTask, priorityLabel, read, readList, STATUS_BADGES, STATUS_COLORS, STATUS_LABELS, TASK_STATUSES, TaskStatus, text, unwrap } from "./analytics";
 
 type GroupBy = "department" | "responsible";
 

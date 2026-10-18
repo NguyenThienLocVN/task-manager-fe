@@ -19,7 +19,15 @@ export type AuthUser = {
   jobTitle: string | null;
   avatarUrl: string | null;
   organization: string | null;
-  department: string | null;
+  department:
+    | string
+    | {
+        id?: string | number;
+        name?: string | null;
+        departmentName?: string | null;
+        department_name?: string | null;
+      }
+    | null;
   roles: string[];
   permissions: string[];
   isActive?: boolean;
