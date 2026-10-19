@@ -282,7 +282,7 @@ function historyItemTitle(value: Record<string, unknown>): string {
     ACCEPT: "Tiếp nhận",
     DELEGATE: "Phân công",
     PROGRESS: "Cập nhật tiến độ",
-    SUBMIT_REVIEW: "Trình duyệt",
+    SUBMIT_REVIEW: "Trình phê duyệt",
     REVIEW: "Duyệt kết quả",
     COMMENT: "Trao đổi",
     CREATE: "Tạo công việc",
@@ -293,9 +293,56 @@ function historyItemTitle(value: Record<string, unknown>): string {
   return actionLabels[title.trim().toUpperCase()] ?? title;
 }
 
-function itemActor(value: Record<string, unknown>): string {
-  const user = record(value.user ?? value.actor ?? value.createdByUser ?? value.created_by_user);
-  return text(user?.fullName ?? user?.full_name ?? user?.name ?? value.userName ?? value.user_name ?? value.actorName);
+function itemActor(value: Record<string, unknown>, users: Option[]): string {
+  const actors = [
+    value.user,
+    value.actor,
+    value.createdByUser,
+    value.created_by_user,
+    value.createdBy,
+    value.created_by,
+    value.author,
+    value.sender,
+  ]
+    .map(record)
+    .filter((actor): actor is Record<string, unknown> => Boolean(actor));
+  for (const actor of actors) {
+    const name = text(
+      actor.fullName ?? actor.full_name ?? actor.name ?? actor.username,
+    );
+    if (name) return name;
+  }
+
+  const name = text(
+    value.userName ??
+      value.user_name ??
+      value.actorName ??
+      value.actor_name ??
+      value.authorName ??
+      value.author_name ??
+      value.senderName ??
+      value.sender_name ??
+      value.createdByName ??
+      value.created_by_name,
+  );
+  if (name) return name;
+
+  const actorId = text(
+    actors.find((actor) => actor.id !== undefined)?.id ??
+      value.userId ??
+      value.user_id ??
+      value.actorId ??
+      value.actor_id ??
+      value.createdByUserId ??
+      value.created_by_user_id ??
+      value.createdById ??
+      value.created_by_id ??
+      value.authorId ??
+      value.author_id ??
+      value.senderId ??
+      value.sender_id,
+  );
+  return users.find((user) => user.id === actorId)?.name ?? "";
 }
 
 function itemDate(value: Record<string, unknown>): string {
@@ -1134,18 +1181,20 @@ export default function TaskWorkspace() {
                       </div>
                     )}
                   </article>
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    {detail.task.status === "PENDING_REVIEW" && <article className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3><textarea className={`${inputClass} min-h-20`} placeholder="Nhận xét bắt buộc" value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} /><div className="grid grid-cols-2 gap-2"><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("APPROVE")}><Check className="h-4 w-4" />Phê duyệt</button><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("RETURN")}><X className="h-4 w-4" />Trả lại</button></div></article>}
+                  <div className="grid gap-4">
+                    {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && <article className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3><textarea className={`${inputClass} min-h-20`} placeholder="Nhận xét bắt buộc" value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} /><div className="grid grid-cols-2 gap-2"><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("APPROVE")}><Check className="h-4 w-4" />Phê duyệt</button><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("RETURN")}><X className="h-4 w-4" />Trả lại</button></div></article>}
                     {detail.task.status === "PENDING_REVIEW" && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-5 text-violet-800">Công việc đang chờ lãnh đạo xem xét. Kết quả và nhận xét được lưu theo luồng phê duyệt.</div>}
                   </div>
                 </div>}
                 {detailTab === "progress" && <div className="space-y-4">
-                  {["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Phần trăm hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
-                  {detail.task.status === "IN_PROGRESS" && <form onSubmit={submitReviewResult} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Trình kết quả</h3><textarea required className={`${inputClass} min-h-24`} placeholder="Mô tả kết quả đã thực hiện..." value={reviewResult} onChange={(event) => setReviewResult(event.target.value)} /><button className={buttonClass} disabled={Boolean(activeAction)}><ArrowRight className="h-4 w-4" />Trình lãnh đạo phê duyệt</button></form>}
-                  <TimelineList items={detail.progress} empty="Chưa có cập nhật tiến độ." />
+                  <div className="grid items-start gap-4 lg:grid-cols-[7fr_3fr]">
+                    {["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Tỉ lệ hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
+                    <TimelineList items={detail.progress} empty="Chưa có cập nhật tiến độ." users={users} actorLabel="Người cập nhật" />
+                  </div>
+                  {(detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && <form onSubmit={submitReviewResult} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Trình kết quả</h3><textarea required className={`${inputClass} min-h-24`} placeholder="Mô tả kết quả đã thực hiện..." value={reviewResult} onChange={(event) => setReviewResult(event.target.value)} /><button className={buttonClass} disabled={Boolean(activeAction)}><ArrowRight className="h-4 w-4" />Trình lãnh đạo phê duyệt</button></form>}
                 </div>}
-                {detailTab === "comments" && <div className="space-y-4"><form onSubmit={submitComment} className={`${panelClass} space-y-3`}><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MessageSquare className="h-4 w-4 text-blue-600" />Trao đổi công việc</h3><textarea required className={`${inputClass} min-h-20`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Nhập nội dung trao đổi..." /><button className={buttonClass} disabled={Boolean(activeAction)}>Gửi trao đổi</button></form><TimelineList items={detail.comments} empty="Chưa có trao đổi nào." /></div>}
-                {detailTab === "history" && <div className="space-y-4"><TimelineList items={detail.history} empty="Chưa có lịch sử thao tác." heading="Lịch sử hoạt động" translateActions /></div>}
+                {detailTab === "comments" && <div className="space-y-4"><form onSubmit={submitComment} className={`${panelClass} space-y-3`}><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MessageSquare className="h-4 w-4 text-blue-600" />Trao đổi công việc</h3><textarea required className={`${inputClass} min-h-20`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Nhập nội dung trao đổi..." /><button className={buttonClass} disabled={Boolean(activeAction)}>Gửi trao đổi</button></form><TimelineList items={detail.comments} empty="Chưa có trao đổi nào." users={users} actorLabel="Người trao đổi" /></div>}
+                {detailTab === "history" && <div className="space-y-4"><TimelineList items={detail.history} empty="Chưa có lịch sử thao tác." heading="Lịch sử hoạt động" translateActions users={users} actorLabel="Người thực hiện" /></div>}
               </main>
             </div>
           </section>
@@ -1162,11 +1211,15 @@ function TimelineList({
   empty,
   heading,
   translateActions = false,
+  users = [],
+  actorLabel = "Người gửi",
 }: {
   items: Record<string, unknown>[];
   empty: string;
   heading?: string;
   translateActions?: boolean;
+  users?: Option[];
+  actorLabel?: string;
 }) {
   return (
     <section className={panelClass}>
@@ -1176,15 +1229,16 @@ function TimelineList({
           {items.map((item, index) => {
             const difficulty = text(item.difficulties ?? item.challenges);
             const solution = text(item.proposedSolution ?? item.proposed_solution);
+            const actor = itemActor(item, users);
             return (
               <article key={text(item.id) || index} className="rounded-xl bg-slate-50 p-3">
                 <div className="flex items-start justify-between gap-3">
-                  <p className="whitespace-pre-wrap text-sm leading-5 text-slate-700">
+                  <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-5 text-slate-700">
+                    {actor && <><span className="font-bold text-slate-500">{actor}</span>{" - "}</>}
                     {translateActions ? historyItemTitle(item) : itemTitle(item)}
                   </p>
-                  {itemDate(item) && <time className="shrink-0 text-[11px] text-slate-400">{displayDateTime(itemDate(item))}</time>}
+                  {itemDate(item) && <time className="shrink-0 text-[11px] text-slate-500">{displayDateTime(itemDate(item))}</time>}
                 </div>
-                {itemActor(item) && <p className="mt-2 text-xs font-medium text-slate-500">{itemActor(item)}</p>}
                 {difficulty && <p className="mt-2 text-xs text-amber-800">Khó khăn: {difficulty}</p>}
                 {solution && <p className="mt-1 text-xs text-blue-800">Giải pháp đề xuất: {solution}</p>}
                 {item.progressPercent !== undefined && <p className="mt-2 text-xs font-semibold text-blue-700">Tiến độ {text(item.progressPercent)}%</p>}

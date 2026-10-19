@@ -238,7 +238,6 @@ export default function DashboardOverview() {
           <div className="flex items-center gap-2 text-sm font-medium text-blue-100"><CalendarDays className="h-4 w-4" /><CurrentVietnameseDate /></div>
           <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">Xin chào, {user?.fullName || "bạn"}</h2>
         </div>
-        <Link href="/quan-tri/cong-viec/nhiem-vu" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-50"><Plus className="h-4 w-4" />Tạo công việc mới</Link>
       </section>
 
       {error && <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0" /><span className="flex-1">{error}</span><button type="button" className="font-semibold underline" onClick={() => void loadDashboard()}>Thử lại</button></div>}
