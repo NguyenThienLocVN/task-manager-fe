@@ -282,7 +282,6 @@ export default function DepartmentManagement() {
 
     try {
       const payload = {
-        organizationId: selectedOrganizationId,
         parentId: data.parentId ?? null,
         code: data.code,
         name: data.name,
@@ -302,7 +301,10 @@ export default function DepartmentManagement() {
       } else {
         await requestApi<Department>("/departments", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            organizationId: selectedOrganizationId,
+            ...payload,
+          }),
         });
       }
 
@@ -639,9 +641,6 @@ export default function DepartmentManagement() {
                       >
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                              <Network className="h-5 w-5" />
-                            </div>
 
                             <div>
                               <p className="font-semibold text-slate-900">
@@ -662,7 +661,7 @@ export default function DepartmentManagement() {
                         </td>
 
                         <td className="px-5 py-4 text-sm text-slate-600">
-                          {parent?.name || "Cơ quan"}
+                          {parent?.name || "-"}
                         </td>
 
                         <td className="px-5 py-4">
@@ -681,17 +680,6 @@ export default function DepartmentManagement() {
 
                         <td className="px-5 py-4">
                           <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() =>
-                                handleAdd(department.id)
-                              }
-                              disabled={pendingDepartmentId === department.id}
-                              title="Thêm phòng ban cấp dưới"
-                              className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-
                             <button
                               onClick={() =>
                                 void handleEdit(department)
@@ -853,14 +841,6 @@ function TreeNode({
           >
             {department.name}
           </span>
-        </button>
-
-        <button
-          onClick={() => onAddChild(department.id)}
-          className="hidden rounded-md p-1 text-slate-400 hover:bg-white hover:text-blue-700 group-hover:block"
-          title="Thêm cấp dưới"
-        >
-          <Plus className="h-4 w-4" />
         </button>
       </div>
 
