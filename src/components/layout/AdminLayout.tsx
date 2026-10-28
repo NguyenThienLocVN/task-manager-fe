@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LogOut, LucideIcon, Menu, Network, ShieldCheck, Target, UserRound, UsersRound, X } from "lucide-react";
+import { Bell, BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LogOut, LucideIcon, Menu, Network, ShieldCheck, Target, UserRound, UsersRound, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
@@ -31,6 +31,15 @@ const menus: {
         label: "Bảng điều khiển",
         href: "/quan-tri",
         icon: LayoutDashboard,
+      },
+    ],
+  },
+  {
+    items: [
+      {
+        label: "Thông báo",
+        href: "/quan-tri/thong-bao",
+        icon: Bell,
       },
     ],
   },
