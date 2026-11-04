@@ -10,10 +10,10 @@ export default function IncomingDocumentsPage() {
   return (
     <AdminLayout
       title="Văn bản đến"
-      description="Tiếp nhận, theo dõi và phân công xử lý văn bản đến."
+      description="Xem văn bản được phân công cho bạn hoặc phòng ban của bạn."
       requiredPermission="DOCUMENT_VIEW"
     >
-      <IncomingDocuments />
+      <IncomingDocuments direction="INCOMING" />
     </AdminLayout>
   );
 }

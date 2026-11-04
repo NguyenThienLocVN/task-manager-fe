@@ -235,6 +235,8 @@ const emptyFilters: Filters = {
 
 export default function UserManagement() {
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [organizations, setOrganizations] = useState<Option[]>([]);
   const [departments, setDepartments] = useState<Option[]>([]);
   const [roles, setRoles] = useState<Option[]>([]);
@@ -350,6 +352,12 @@ export default function UserManagement() {
           )
         : departments,
     [departments, filters.organizationId],
+  );
+  const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedUsers = useMemo(
+    () => users.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [users, currentPage, pageSize],
   );
 
   const refresh = async () => {
@@ -574,6 +582,7 @@ export default function UserManagement() {
   };
 
   const updateFilter = (key: keyof Filters, value: string) => {
+    setPage(1);
     setFilters((current) => {
       const next = { ...current, [key]: value };
       if (key === "organizationId") next.departmentId = "";
@@ -770,7 +779,7 @@ export default function UserManagement() {
                   </td>
                 </tr>
               ) : (
-                users.map((user) => {
+                paginatedUsers.map((user) => {
                   const isPending = pendingUserId === user.id;
                   const organizationName =
                     organizations.find((item) => item.id === user.organizationId)
@@ -800,11 +809,6 @@ export default function UserManagement() {
                             <p className="mt-1 text-xs text-slate-500">
                               @{user.username}
                             </p>
-                            {user.jobTitle && (
-                              <p className="mt-1 text-xs text-slate-500">
-                                {user.jobTitle}
-                              </p>
-                            )}
                           </div>
                         </div>
                       </td>
@@ -813,9 +817,11 @@ export default function UserManagement() {
                         <p className="mt-1 text-xs">{user.phone || "—"}</p>
                       </td>
                       <td className="px-5 py-4">
-                        <p className="font-medium text-slate-700">
-                          {organizationName}
-                        </p>
+                        {user.jobTitle && (
+                          <p className="mt-1 text-xs text-slate-700">
+                            {user.jobTitle}
+                          </p>
+                        )}
                         <p className="mt-1 text-xs text-slate-500">
                           {departmentName}
                         </p>
@@ -901,8 +907,51 @@ export default function UserManagement() {
           </table>
         </div>
         {!isLoading && users.length > 0 && (
-          <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-            Hiển thị <b>{users.length}</b> người dùng.
+          <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Hiển thị{" "}
+              <b>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, users.length)}</b>{" "}
+              trong <b>{users.length}</b> người dùng.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2">
+                <span>Số bản ghi mỗi trang</span>
+                <select
+                  aria-label="Số bản ghi mỗi trang"
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-700 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-600/10"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="rounded-lg border border-slate-300 px-3 py-2 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Trước
+                </button>
+                <span aria-live="polite">
+                  Trang <b>{currentPage}</b> / <b>{totalPages}</b>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="rounded-lg border border-slate-300 px-3 py-2 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Sau
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </section>
@@ -1238,7 +1287,7 @@ function StatusPill({ active }: { active: boolean }) {
           active ? "bg-emerald-500" : "bg-slate-400"
         }`}
       />
-      {active ? "Hoạt động" : "Chưa kích hoạt"}
+      {active ? "" : "Chưa kích hoạt"}
     </span>
   );
 }

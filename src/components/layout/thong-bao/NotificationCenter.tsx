@@ -9,8 +9,9 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleDashedCheck,
   LoaderCircle,
-  MailOpen,
+  Mail,
   MessageSquare,
   Send,
   Trash2,
@@ -21,6 +22,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { apiRequest } from "@/lib/auth/api";
+import {
+  formatNotificationTime,
+  readNotificationPage,
+  readUnreadCount,
+  type NotificationItem,
+} from "@/lib/notifications";
 
 type NotificationType =
   | "TASK_ROUTED"
@@ -31,23 +38,11 @@ type NotificationType =
   | "TASK_REJECTED"
   | "TASK_COMMENT";
 
-type NotificationItem = {
-  id: string;
-  type: string;
-  title: string;
-  content: string;
-  taskId: string;
-  taskCode: string;
-  taskTitle: string;
-  isRead: boolean;
-  createdAt: string;
-};
-
 const TYPE_META: Record<
   NotificationType,
   { label: string; icon: LucideIcon; tone: string }
 > = {
-  TASK_ROUTED: { label: "Giao tuyến", icon: Waypoints, tone: "bg-sky-100 text-sky-700" },
+  TASK_ROUTED: { label: "Giao việc", icon: Waypoints, tone: "bg-sky-100 text-sky-700" },
   TASK_ACCEPTED: { label: "Tiếp nhận", icon: UserCheck, tone: "bg-emerald-100 text-emerald-700" },
   TASK_DELEGATED: { label: "Phân công lại", icon: UserPlus, tone: "bg-violet-100 text-violet-700" },
   TASK_SUBMITTED: { label: "Chờ duyệt", icon: Send, tone: "bg-amber-100 text-amber-700" },
@@ -57,74 +52,6 @@ const TYPE_META: Record<
 };
 
 const PAGE_SIZE = 20;
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function pick(record: Record<string, unknown>, ...keys: string[]) {
-  for (const key of keys) {
-    const value = record[key];
-    if (value !== undefined && value !== null) return value;
-  }
-  return undefined;
-}
-
-function str(value: unknown) {
-  return typeof value === "string" || typeof value === "number" ? String(value) : "";
-}
-
-function normalize(raw: unknown): NotificationItem {
-  const r = asRecord(raw);
-  const read = pick(r, "isRead", "is_read");
-  return {
-    id: str(pick(r, "id")),
-    type: str(pick(r, "notificationType", "notification_type", "type")),
-    title: str(pick(r, "title")),
-    content: str(pick(r, "content", "message", "body")),
-    taskId: str(pick(r, "taskId", "task_id")),
-    taskCode: str(pick(r, "taskCode", "task_code")),
-    taskTitle: str(pick(r, "taskTitle", "task_title")),
-    isRead: read === true || read === 1 || read === "true" || read === "1",
-    createdAt: str(pick(r, "createdAt", "created_at")),
-  };
-}
-
-function readPage(response: unknown) {
-  const body = asRecord(response);
-  const inner = asRecord(body.data);
-  const listSource = Array.isArray(response)
-    ? response
-    : Array.isArray(body.data)
-      ? body.data
-      : Array.isArray(body.items)
-        ? body.items
-        : Array.isArray(inner.items)
-          ? inner.items
-          : [];
-  const meta = { ...asRecord(body.meta), ...inner, ...body };
-  const total = Number(pick(meta, "total", "totalItems", "count") ?? listSource.length);
-  const totalPages = Number(
-    pick(meta, "totalPages", "total_pages") ?? Math.max(1, Math.ceil(total / PAGE_SIZE)),
-  );
-  return {
-    items: (listSource as unknown[]).map(normalize),
-    total: Number.isFinite(total) ? total : listSource.length,
-    totalPages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : 1,
-  };
-}
-
-function formatTime(value: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const minutes = Math.floor((Date.now() - date.getTime()) / 60000);
-  if (minutes < 1) return "Vừa xong";
-  if (minutes < 60) return `${minutes} phút trước`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} giờ trước`;
-  return date.toLocaleString("vi-VN");
-}
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Đã xảy ra lỗi.";
@@ -138,7 +65,7 @@ const READ_FILTERS = [
 
 export default function NotificationCenter() {
   const [items, setItems] = useState<NotificationItem[]>([]);
-  const [unread, setUnread] = useState(0);
+  const [unread, setUnread] = useState<number | null>(null);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
@@ -153,6 +80,7 @@ export default function NotificationCenter() {
     const id = ++requestId.current;
     setLoading(true);
     setError("");
+    setUnread(null);
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
     if (isReadFilter) params.set("isRead", isReadFilter);
     if (typeFilter) params.set("notificationType", typeFilter);
@@ -162,22 +90,28 @@ export default function NotificationCenter() {
         apiRequest<unknown>("/notifications/unread-count").catch(() => null),
       ]);
       if (id !== requestId.current) return;
-      const result = readPage(list);
+      const result = readNotificationPage(list, PAGE_SIZE);
       setItems(result.items);
       setTotal(result.total);
       setTotalPages(result.totalPages);
-      if (count !== null) {
-        const c = asRecord(count);
-        const d = asRecord(c.data);
-        const n = Number(
-          typeof count === "number"
-            ? count
-            : (pick(c, "count", "unreadCount", "unread_count", "total") ??
-                pick(d, "count", "unreadCount", "unread_count", "total") ??
-                0),
+      const visibleUnreadCount = result.items.filter((item) => !item.isRead).length;
+      let unreadCount = readUnreadCount(count);
+      if (unreadCount === null || unreadCount === 0) {
+        const unreadParams = new URLSearchParams({
+          page: "1",
+          limit: "1",
+          isRead: "false",
+        });
+        const unreadList = await apiRequest<unknown>(
+          `/notifications?${unreadParams}`,
         );
-        setUnread(Number.isFinite(n) ? n : 0);
+        unreadCount = Math.max(
+          readNotificationPage(unreadList, 1).total,
+          visibleUnreadCount,
+        );
       }
+      if (id !== requestId.current) return;
+      setUnread(Math.max(unreadCount, visibleUnreadCount));
     } catch (e) {
       if (id === requestId.current) setError(errorMessage(e));
     } finally {
@@ -188,6 +122,15 @@ export default function NotificationCenter() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () =>
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
   }, [load]);
 
   async function run(action: () => Promise<unknown>) {
@@ -228,7 +171,9 @@ export default function NotificationCenter() {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Bell className="h-5 w-5 text-slate-500" />
-          <span className="text-sm font-semibold text-slate-800">{unread} chưa đọc</span>
+          <span className="text-sm font-semibold text-slate-800">
+            {unread ?? "—"} chưa đọc
+          </span>
           <span className="text-sm text-slate-500">/ {total} thông báo</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -263,22 +208,6 @@ export default function NotificationCenter() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => void readAll()}
-            disabled={busy || unread === 0}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            <CheckCheck className="h-4 w-4" /> Đọc tất cả
-          </button>
-          <button
-            type="button"
-            onClick={removeRead}
-            disabled={busy}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 px-3 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" /> Xoá đã đọc
-          </button>
         </div>
       </div>
 
@@ -303,7 +232,7 @@ export default function NotificationCenter() {
               return (
                 <li
                   key={n.id}
-                  className={`flex items-start gap-3 p-4 ${n.isRead ? "" : "bg-sky-50/50"}`}
+                  className={`flex items-start gap-3 p-4 ${n.isRead ? "" : "bg-sky-100"}`}
                 >
                   <span
                     className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${meta?.tone ?? "bg-slate-100 text-slate-700"}`}
@@ -326,14 +255,14 @@ export default function NotificationCenter() {
                     </div>
                     {n.content && <p className="mt-1 text-sm text-slate-600">{n.content}</p>}
                     <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                      <span>{formatTime(n.createdAt)}</span>
+                      <span>{formatNotificationTime(n.createdAt)}</span>
                       {n.taskId && (
                         <Link
                           href={`/quan-tri/cong-viec/nhiem-vu?taskId=${encodeURIComponent(n.taskId)}`}
                           onClick={() => markReadOnOpen(n)}
                           className="font-medium text-sky-700 hover:underline"
                         >
-                          {[n.taskCode, n.taskTitle].filter(Boolean).join(" · ") || "Xem nhiệm vụ"}
+                          {"Xem nhiệm vụ"}
                         </Link>
                       )}
                     </div>
@@ -347,7 +276,11 @@ export default function NotificationCenter() {
                       aria-label={n.isRead ? "Đánh dấu chưa đọc" : "Đánh dấu đã đọc"}
                       className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
                     >
-                      <MailOpen className="h-4 w-4" />
+                      {n.isRead ? (
+                        <CircleDashedCheck className="h-4 w-4" />
+                      ) : (
+                        <CheckCheck className="h-4 w-4" />
+                      )}
                     </button>
                     <button
                       type="button"

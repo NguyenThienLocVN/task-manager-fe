@@ -28,7 +28,7 @@ export type AuthUser = {
         department_name?: string | null;
       }
     | null;
-  roles: string[];
+  roles: (string | { name?: string | null })[];
   permissions: string[];
   isActive?: boolean;
   isLocked?: boolean;

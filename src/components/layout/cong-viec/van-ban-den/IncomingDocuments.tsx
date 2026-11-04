@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -32,6 +33,7 @@ type DocumentStatus =
   | "PROCESSING"
   | "COMPLETED"
   | "ARCHIVED";
+type DocumentDirection = "INCOMING" | "OUTGOING";
 type Priority = "low" | "medium" | "high" | "urgent";
 
 type AiAnalysis = {
@@ -621,7 +623,11 @@ function Field({
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100";
 
-export default function IncomingDocuments() {
+export default function IncomingDocuments({
+  direction = "INCOMING",
+}: {
+  direction?: DocumentDirection;
+}) {
   const { user } = useAuth();
   const [documents, setDocuments] = useState<IncomingDocument[]>([]);
   const [documentFields, setDocumentFields] = useState<DocumentField[]>([]);
@@ -678,8 +684,9 @@ export default function IncomingDocuments() {
     if (status !== "all") params.set("status", status);
     if (fieldId) params.set("fieldId", fieldId);
     try {
+      const endpoint = direction === "INCOMING" ? "inbox" : "outbox";
       const result = normalizeDocumentPage(
-        await apiRequest<unknown>(`/documents?${params.toString()}`),
+        await apiRequest<unknown>(`/documents/${endpoint}?${params.toString()}`),
         requestedPage,
         pageSize,
       );
@@ -693,12 +700,15 @@ export default function IncomingDocuments() {
       setDocuments([]);
       setTotalDocuments(0);
       setError(
-        errorMessage(requestError, "Không thể tải danh sách văn bản đến."),
+        errorMessage(
+          requestError,
+          `Không thể tải danh sách văn bản ${direction === "INCOMING" ? "đến" : "đi"}.`,
+        ),
       );
     } finally {
       if (requestId === listRequestId.current) setIsLoading(false);
     }
-  }, [pageSize]);
+  }, [direction, pageSize]);
 
   const loadOptions = useCallback(async () => {
     setIsLoadingOptions(true);
@@ -868,6 +878,11 @@ export default function IncomingDocuments() {
           setIsDetailLoading(false);
         }
       });
+
+    if (direction === "OUTGOING") {
+      setIsAssignmentLoading(false);
+      return;
+    }
 
     void (async () => {
       try {
@@ -1414,19 +1429,18 @@ export default function IncomingDocuments() {
         <div className="absolute -right-3 -top-7 h-44 w-44 rounded-full border border-white/10" />
         <div className="relative flex flex-col gap-6 sm:flex-row sm:justify-between items-center">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-gradient-to-br from-[#0e3060] via-[#124987] to-[#2775c7] px-3 py-1.5 text-xs font-semibold text-blue-50">
-              <Sparkles className="h-4 w-4 text-amber-300" />
-              TRUNG TÂM ĐIỀU PHỐI VĂN BẢN
-            </div>
+
           </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#0e3060] shadow-lg shadow-blue-950/15 transition hover:-translate-y-0.5 hover:bg-blue-50"
-          >
-            <FilePlus2 className="h-4 w-4" />
-            Thêm văn bản
-          </button>
+          {direction === "INCOMING" && (
+            <button
+              type="button"
+              onClick={openCreate}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#0e3060] shadow-lg shadow-blue-950/15 transition hover:-translate-y-0.5 hover:bg-blue-50"
+            >
+              <FilePlus2 className="h-4 w-4" />
+              Thêm văn bản
+            </button>
+          )}
         </div>
         <div className="relative mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
@@ -1456,7 +1470,9 @@ export default function IncomingDocuments() {
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm sm:mt-6">
           <div className="flex flex-col gap-4 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div>
-              <h3 className="font-bold text-slate-900">Danh sách văn bản</h3>
+              <h3 className="font-bold text-slate-900">
+                Danh sách văn bản {direction === "INCOMING" ? "đến" : "đi"}
+              </h3>
               <p className="mt-1 text-sm text-slate-500">
                 {totalDocuments} văn bản
                 {keyword || statusFilter !== "all" || fieldFilter
@@ -1540,7 +1556,9 @@ export default function IncomingDocuments() {
                   </th>
                   <th className="px-5 py-2 font-semibold">Cơ quan ban hành</th>
                   <th className="px-5 py-2 font-semibold">Lĩnh vực</th>
-                  <th className="px-5 py-2 font-semibold">Ngày nhận</th>
+                  <th className="px-5 py-2 font-semibold">
+                    {direction === "INCOMING" ? "Ngày nhận" : "Ngày văn bản"}
+                  </th>
                   <th className="px-5 py-2 font-semibold">Trạng thái</th>
                   <th className="px-5 py-2 text-right font-semibold">Thao tác</th>
                 </tr>
@@ -1560,7 +1578,9 @@ export default function IncomingDocuments() {
                         <FileSearch2 className="h-6 w-6" />
                       </div>
                       <p className="mt-3 font-semibold text-slate-800">
-                        {totalDocuments ? "Không tìm thấy văn bản" : "Chưa có văn bản đến"}
+                        {totalDocuments
+                          ? "Không tìm thấy văn bản"
+                          : `Chưa có văn bản ${direction === "INCOMING" ? "đến" : "đi"}`}
                       </p>
                     </td>
                   </tr>
@@ -1592,7 +1612,11 @@ export default function IncomingDocuments() {
                           "—"}
                       </td>
                       <td className="px-5 py-2 text-slate-600">
-                        {displayDate(document.receivedDate)}
+                        {displayDate(
+                          direction === "INCOMING"
+                            ? document.receivedDate
+                            : document.documentDate,
+                        )}
                       </td>
                       <td className="px-5 py-2">
                         <span
@@ -1612,29 +1636,33 @@ export default function IncomingDocuments() {
                           >
                             <FileSearch2 className="h-4 w-4" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => openEdit(document)}
-                            className="rounded-lg p-2 text-slate-500 hover:bg-amber-50 hover:text-amber-700"
-                            aria-label={`Sửa ${document.documentNo || document.title}`}
-                            title="Chỉnh sửa"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void deleteDocument(document)}
-                            disabled={pendingDeleteId === document.id}
-                            className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
-                            aria-label={`Xóa ${document.documentNo || document.title}`}
-                            title="Xóa"
-                          >
-                            {pendingDeleteId === document.id ? (
-                              <LoaderCircle className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </button>
+                          {direction === "INCOMING" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openEdit(document)}
+                                className="rounded-lg p-2 text-slate-500 hover:bg-amber-50 hover:text-amber-700"
+                                aria-label={`Sửa ${document.documentNo || document.title}`}
+                                title="Chỉnh sửa"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void deleteDocument(document)}
+                                disabled={pendingDeleteId === document.id}
+                                className="rounded-lg p-2 text-slate-500 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
+                                aria-label={`Xóa ${document.documentNo || document.title}`}
+                                title="Xóa"
+                              >
+                                {pendingDeleteId === document.id ? (
+                                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1981,7 +2009,11 @@ export default function IncomingDocuments() {
           onClose={closeModal}
           wide
         >
-          <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
+          <div
+            className={`grid gap-6 ${
+              direction === "INCOMING" ? "lg:grid-cols-[0.92fr_1.08fr]" : ""
+            }`}
+          >
             <div className="space-y-5">
               <div>
                 <span
@@ -2005,12 +2037,19 @@ export default function IncomingDocuments() {
                       "—",
                   ],
                   ["Loại văn bản", modal.document.documentType || "—"],
-                  ["Ngày ký", displayDate(modal.document.documentDate)],
-                  ["Ngày tiếp nhận", displayDate(modal.document.receivedDate)],
                   [
-                    "Người tiếp nhận",
-                    receivedByUser?.name || modal.document.receivedBy || "—",
+                    direction === "INCOMING" ? "Ngày ký" : "Ngày văn bản",
+                    displayDate(modal.document.documentDate),
                   ],
+                  ...(direction === "INCOMING"
+                    ? [
+                        ["Ngày tiếp nhận", displayDate(modal.document.receivedDate)],
+                        [
+                          "Người tiếp nhận",
+                          receivedByUser?.name || modal.document.receivedBy || "—",
+                        ],
+                      ]
+                    : []),
                 ].map(([label, value]) => (
                   <div key={label} className="col-span-2 sm:col-span-1">
                     <dt className="text-xs font-medium text-slate-500">{label}</dt>
@@ -2053,18 +2092,21 @@ export default function IncomingDocuments() {
                   Đang tải thông tin chi tiết...
                 </p>
               )}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => openEdit(modal.document)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Chỉnh sửa
-                </button>
-              </div>
+              {direction === "INCOMING" && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(modal.document)}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Chỉnh sửa
+                  </button>
+                </div>
+              )}
             </div>
 
+            {direction === "INCOMING" && (
             <form
               onSubmit={assignDocument}
               className="relative overflow-hidden rounded-3xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-blue-50 p-4 shadow-[0_14px_40px_-20px_rgba(79,70,229,0.55)] sm:p-5"
@@ -2380,6 +2422,7 @@ export default function IncomingDocuments() {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </ModalShell>
       )}

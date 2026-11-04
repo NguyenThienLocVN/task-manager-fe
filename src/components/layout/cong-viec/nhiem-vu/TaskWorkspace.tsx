@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, AlertTriangle, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MessageSquare, Plus, Search, ShieldAlert, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest } from "@/lib/auth/api";
 
@@ -31,8 +31,15 @@ type Task = {
   status: TaskStatus;
   progress: number;
   result: string;
+  resultFiles: TaskResultFile[];
   isImportant: boolean;
   isConfidential: boolean;
+};
+type TaskResultFile = {
+  id: string;
+  name: string;
+  size: number | null;
+  downloadUrl: string;
 };
 type Option = { id: string; name: string; departmentId?: string; organizationId?: string };
 type TaskForm = {
@@ -119,6 +126,43 @@ function text(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
 }
 
+function normalizeResultFiles(value: unknown): TaskResultFile[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    const item = record(entry);
+    if (!item) return [];
+    const rawSize = Number(item.size ?? item.fileSize ?? item.file_size);
+    const downloadUrl = text(
+      item.downloadUrl ?? item.download_url ?? item.url ?? item.fileUrl ?? item.file_url,
+    );
+    return [{
+      id: text(item.id) || `${index}`,
+      name: text(
+        item.fileName ?? item.file_name ?? item.originalFileName ??
+          item.original_file_name ?? item.originalName ?? item.original_name ??
+          item.filename ?? item.name,
+      ) || "Tệp kết quả",
+      size: Number.isFinite(rawSize) && rawSize >= 0 ? rawSize : null,
+      downloadUrl,
+    }];
+  });
+}
+
+function resultFileHref(url: string): string {
+  let path = url;
+  if (/^https?:\/\//i.test(url)) {
+    if (!URL.canParse(url)) return "";
+    const parsedUrl = new URL(url);
+    path = `${parsedUrl.pathname}${parsedUrl.search}`;
+  }
+  if (path.startsWith("/api/")) return path;
+  return `/api/${path.replace(/^\/+/, "")}`;
+}
+
+const RESULT_FILE_MAX_SIZE = 25 * 1024 * 1024;
+const RESULT_FILE_EXTENSIONS = new Set(["pdf", "png", "jpg", "jpeg"]);
+const RESULT_FILE_TYPES = new Set(["application/pdf", "image/png", "image/jpeg"]);
+
 function read(value: Record<string, unknown>, camel: string, snake: string): unknown {
   return value[camel] ?? value[snake];
 }
@@ -174,6 +218,9 @@ function normalizeTask(value: unknown): Task {
     status: Object.hasOwn(STATUS_LABELS, status) ? status : "NEW",
     progress: Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : 0,
     result: text(item.result),
+    resultFiles: normalizeResultFiles(
+      read(item, "resultFiles", "result_files"),
+    ),
     isImportant: item.isImportant === true || item.is_important === true,
     isConfidential: item.isConfidential === true || item.is_confidential === true,
   };
@@ -425,6 +472,7 @@ export default function TaskWorkspace() {
   const [acceptNote, setAcceptNote] = useState("");
   const [reviewComment, setReviewComment] = useState("");
   const [reviewResult, setReviewResult] = useState("");
+  const [reviewFile, setReviewFile] = useState<File | null>(null);
   const [delegateUserId, setDelegateUserId] = useState("");
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
@@ -553,6 +601,7 @@ export default function TaskWorkspace() {
     setAcceptNote("");
     setReviewComment("");
     setReviewResult("");
+    setReviewFile(null);
     setDelegateUserId("");
     const prefix = `/tasks/${encodeURIComponent(task.id)}`;
     const endpoints = [
@@ -683,16 +732,21 @@ export default function TaskWorkspace() {
     }
   };
 
-  const runTaskAction = async (actionName: string, path: string, payload: Record<string, unknown>, successText: string) => {
-    if (!selectedTask) return;
+  const runTaskAction = async (actionName: string, path: string, payload: Record<string, unknown> | FormData, successText: string) => {
+    if (!selectedTask) return false;
     setActiveAction(actionName);
     setNotice(null);
     try {
-      await apiRequest<unknown>(path, { method: "POST", body: JSON.stringify(payload) });
+      await apiRequest<unknown>(path, {
+        method: "POST",
+        body: payload instanceof FormData ? payload : JSON.stringify(payload),
+      });
       setNotice({ type: "success", text: successText });
       await Promise.all([loadTasks(), openDetail(selectedTask)]);
+      return true;
     } catch (requestError) {
       setNotice({ type: "error", text: requestError instanceof Error ? requestError.message : "Không thể thực hiện thao tác." });
+      return false;
     } finally {
       setActiveAction(null);
     }
@@ -727,13 +781,51 @@ export default function TaskWorkspace() {
     void runTaskAction("comment", `/tasks/${encodeURIComponent(selectedTask.id)}/comments`, { content: comment.trim() }, "Đã gửi trao đổi.").then(() => setComment(""));
   };
 
+  const selectReviewFile = (file: File | null) => {
+    if (!file) {
+      setReviewFile(null);
+      return;
+    }
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const expectedType =
+      extension === "pdf"
+        ? "application/pdf"
+        : extension === "png"
+          ? "image/png"
+          : "image/jpeg";
+    if (
+      !RESULT_FILE_EXTENSIONS.has(extension) ||
+      (file.type !== "" &&
+        (!RESULT_FILE_TYPES.has(file.type) || file.type !== expectedType))
+    ) {
+      setReviewFile(null);
+      setNotice({ type: "error", text: "Tệp kết quả phải có định dạng PDF, PNG hoặc JPG." });
+      return;
+    }
+    if (file.size > RESULT_FILE_MAX_SIZE) {
+      setReviewFile(null);
+      setNotice({ type: "error", text: "Tệp kết quả không được vượt quá 25 MB." });
+      return;
+    }
+    setNotice(null);
+    setReviewFile(file);
+  };
+
   const submitReviewResult = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedTask || !reviewResult.trim()) {
       setNotice({ type: "error", text: "Vui lòng nhập kết quả trước khi trình duyệt." });
       return;
     }
-    void runTaskAction("submit-review", `/tasks/${encodeURIComponent(selectedTask.id)}/submit-review`, { result: reviewResult.trim() }, "Đã trình kết quả để lãnh đạo phê duyệt.").then(() => setReviewResult(""));
+    const formData = new FormData();
+    formData.append("result", reviewResult.trim());
+    if (reviewFile) formData.append("file", reviewFile);
+    void runTaskAction("submit-review", `/tasks/${encodeURIComponent(selectedTask.id)}/submit-review`, formData, "Đã trình kết quả để lãnh đạo phê duyệt.").then((success) => {
+      if (success) {
+        setReviewResult("");
+        setReviewFile(null);
+      }
+    });
   };
 
   const submitReview = (decision: "APPROVE" | "RETURN") => {
@@ -956,7 +1048,28 @@ export default function TaskWorkspace() {
             <form className="space-y-4" onSubmit={submitTask}>
               <label className="block text-sm font-semibold text-slate-700">Tiêu đề công việc *<input required className={`${inputClass} mt-1.5`} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} maxLength={250} /></label>
               <label className="block text-sm font-semibold text-slate-700">Mô tả<textarea className={`${inputClass} mt-1.5 min-h-24`} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-              <label className="block text-sm font-semibold text-slate-700">Văn bản nguồn<select className={`${inputClass} mt-1.5`} value={form.documentId} onChange={(event) => setForm({ ...form, documentId: event.target.value })}><option value="">Không liên kết văn bản</option>{documents.map((document) => <option key={document.id} value={document.id}>{document.name}</option>)}</select></label>
+              <label className="block text-sm font-semibold text-slate-700">
+                Văn bản nguồn
+                <select
+                  className={`${inputClass} mt-1.5`}
+                  value={form.documentId}
+                  onChange={(event) =>
+                    setForm({ ...form, documentId: event.target.value })
+                  }
+                >
+                  <option value="">Không liên kết văn bản</option>
+                  {documents.map((document) => (
+                    <option key={document.id} value={document.id}>
+                      {document.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Chọn văn bản nguồn để công việc hiển thị trong văn bản đi của
+                  người giao và văn bản đến của người nhận. Công việc độc lập
+                  không cần liên kết văn bản.
+                </span>
+              </label>
               <fieldset className="rounded-2xl border border-slate-200 p-4"><legend className="px-2 text-sm font-semibold text-slate-700">Hình thức giao việc</legend><div className="grid gap-3 sm:grid-cols-2"><label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.assignmentMode === "department" ? "border-blue-300 bg-blue-50" : "border-slate-200"}`}><input type="radio" name="assignmentMode" value="department" checked={form.assignmentMode === "department"} onChange={() => setForm({ ...form, assignmentMode: "department", assigneeId: "" })} /><span><span className="block text-sm font-semibold">Giao qua phòng</span><span className="mt-1 block text-xs text-slate-500">Trưởng phòng tiếp nhận và phân công chuyên viên.</span></span></label><label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.assignmentMode === "direct" ? "border-blue-300 bg-blue-50" : "border-slate-200"}`}><input type="radio" name="assignmentMode" value="direct" checked={form.assignmentMode === "direct"} onChange={() => setForm({ ...form, assignmentMode: "direct" })} /><span><span className="block text-sm font-semibold">Giao trực tiếp</span><span className="mt-1 block text-xs text-slate-500">Chọn phòng ban và chuyên viên thực hiện.</span></span></label></div></fieldset>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-semibold text-slate-700">Cơ quan<select className={`${inputClass} mt-1.5`} value={form.organizationId} onChange={(event) => setForm({ ...form, organizationId: event.target.value, departmentId: "" })}><option value="">Chọn cơ quan</option>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -1059,6 +1172,41 @@ export default function TaskWorkspace() {
                         </div>
                       )}
                   </article>
+                  {detail.task.resultFiles.length > 0 && (
+                    <article className={panelClass}>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Tệp kết quả đã trình
+                      </h3>
+                      <ul className="mt-3 space-y-2">
+                        {detail.task.resultFiles.map((file) => (
+                          <li
+                            key={file.id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3"
+                          >
+                            <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                              <FileText className="h-4 w-4 shrink-0 text-blue-600" />
+                              <span className="truncate">{file.name}</span>
+                              {file.size !== null && (
+                                <span className="shrink-0 text-xs text-slate-500">
+                                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                                </span>
+                              )}
+                            </span>
+                            {file.downloadUrl && resultFileHref(file.downloadUrl) && (
+                              <a
+                                href={resultFileHref(file.downloadUrl)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                              >
+                                Xem tệp <ArrowUpRight className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </article>
+                  )}
                   <article className={panelClass}>
                     <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
                       <UsersRound className="h-4 w-4 text-blue-600" />
@@ -1191,7 +1339,54 @@ export default function TaskWorkspace() {
                     {["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Tỉ lệ hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
                     <TimelineList items={detail.progress} empty="Chưa có cập nhật tiến độ." users={users} actorLabel="Người cập nhật" />
                   </div>
-                  {(detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && <form onSubmit={submitReviewResult} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Trình kết quả</h3><textarea required className={`${inputClass} min-h-24`} placeholder="Mô tả kết quả đã thực hiện..." value={reviewResult} onChange={(event) => setReviewResult(event.target.value)} /><button className={buttonClass} disabled={Boolean(activeAction)}><ArrowRight className="h-4 w-4" />Trình lãnh đạo phê duyệt</button></form>}
+                  {(detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && (
+                    <form onSubmit={submitReviewResult} className={`${panelClass} space-y-3`}>
+                      <h3 className="text-sm font-bold text-slate-900">Trình kết quả</h3>
+                      <textarea
+                        required
+                        className={`${inputClass} min-h-24`}
+                        placeholder="Mô tả kết quả đã thực hiện..."
+                        value={reviewResult}
+                        onChange={(event) => setReviewResult(event.target.value)}
+                      />
+                      <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50/40">
+                        <Upload className="h-4 w-4 text-blue-700" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {reviewFile?.name ?? "Đính kèm tệp"}
+                        </span>
+                        <input
+                          type="file"
+                          className="sr-only"
+                          accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                          aria-label="Tệp kết quả PDF, PNG hoặc JPG"
+                          onChange={(event) => {
+                            selectReviewFile(event.target.files?.[0] ?? null)
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <p className="text-xs text-slate-500">
+                        Chấp nhận PDF, PNG hoặc JPG, tối đa 10 MB.
+                      </p>
+                      {reviewFile && (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-rose-700 hover:underline"
+                          onClick={() => setReviewFile(null)}
+                        >
+                          Bỏ chọn tệp
+                        </button>
+                      )}
+                      <button className={buttonClass} disabled={Boolean(activeAction)}>
+                        {activeAction === "submit-review" ? (
+                          <LoaderCircle className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ArrowRight className="h-4 w-4" />
+                        )}
+                        Trình lãnh đạo phê duyệt
+                      </button>
+                    </form>
+                  )}
                 </div>}
                 {detailTab === "comments" && <div className="space-y-4"><form onSubmit={submitComment} className={`${panelClass} space-y-3`}><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MessageSquare className="h-4 w-4 text-blue-600" />Trao đổi công việc</h3><textarea required className={`${inputClass} min-h-20`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Nhập nội dung trao đổi..." /><button className={buttonClass} disabled={Boolean(activeAction)}>Gửi trao đổi</button></form><TimelineList items={detail.comments} empty="Chưa có trao đổi nào." users={users} actorLabel="Người trao đổi" /></div>}
                 {detailTab === "history" && <div className="space-y-4"><TimelineList items={detail.history} empty="Chưa có lịch sử thao tác." heading="Lịch sử hoạt động" translateActions users={users} actorLabel="Người thực hiện" /></div>}

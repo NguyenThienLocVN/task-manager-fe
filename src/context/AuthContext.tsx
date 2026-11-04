@@ -141,7 +141,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const hasRole = useCallback(
-    (role: string) => user?.roles.includes(role) ?? false,
+    (role: string) =>
+      user?.roles.some((userRole) =>
+        typeof userRole === "string" ? userRole === role : userRole.name === role,
+      ) ?? false,
     [user],
   );
   const hasPermission = useCallback(
