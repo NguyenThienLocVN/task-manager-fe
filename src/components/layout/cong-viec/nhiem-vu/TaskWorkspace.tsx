@@ -310,6 +310,49 @@ function isOverdue(task: Task): boolean {
   return dueDate.getTime() < Date.now();
 }
 
+function remainingDays(dueDateValue: string): number | null {
+  if (!dueDateValue) return null;
+  const datePart = dueDateValue.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  const parsedDate = new Date(dueDateValue);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+
+  const dueDate = datePart
+    ? new Date(`${datePart}T00:00:00Z`)
+    : parsedDate;
+  const today = new Date();
+  const dueDay = Date.UTC(
+    dueDate.getUTCFullYear(),
+    dueDate.getUTCMonth(),
+    dueDate.getUTCDate(),
+  );
+  const todayDay = Date.UTC(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  return Math.round((dueDay - todayDay) / 86_400_000);
+}
+
+function deadlineReminder(task: Task): { label: string; tone: string } | null {
+  if (!task.dueDate || ["COMPLETED", "CANCELLED"].includes(task.status)) {
+    return null;
+  }
+  const days = remainingDays(task.dueDate);
+  if (days === null || days < 0 || days > 7) return null;
+  if (days === 0) {
+    return { label: "Hạn hôm nay", tone: "bg-rose-50 text-rose-700" };
+  }
+  return {
+    label: `Còn ${days} ngày`,
+    tone:
+      days === 1
+        ? "bg-rose-50 text-rose-700"
+        : days <= 3
+          ? "bg-amber-50 text-amber-700"
+          : "bg-sky-50 text-sky-700",
+  };
+}
+
 function statusStyle(status: TaskStatus): string {
   if (status === "COMPLETED") return "bg-emerald-50 text-emerald-700";
   if (status === "IN_PROGRESS") return "bg-blue-50 text-blue-700";
@@ -900,6 +943,9 @@ export default function TaskWorkspace() {
       ? assignmentUserName(currentResponsibleAssignment, users)
       : "");
   const taskRoute = currentTaskRoute(detail?.routes ?? []);
+  const detailDeadlineReminder = detail
+    ? deadlineReminder(detail.task)
+    : null;
   const taskRouteType = text(
     taskRoute ? read(taskRoute, "routeType", "route_type") : "",
   ).toUpperCase();
@@ -987,7 +1033,9 @@ export default function TaskWorkspace() {
           <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="text-xs uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-100"><th className="py-4 pr-4">Công việc</th><th className="px-4 py-4">Người phụ trách</th><th className="px-4 py-4">Hạn xử lý</th><th className="px-4 py-4">Tiến độ</th><th className="px-4 py-4">Trạng thái</th><th className="py-4 pl-4 text-right">Hành động</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
-              {isLoading ? <tr><td colSpan={6} className="py-14 text-center text-slate-500"><LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-600" />Đang tải công việc...</td></tr> : pageTasks.length ? pageTasks.map((task) => (
+              {isLoading ? <tr><td colSpan={6} className="py-14 text-center text-slate-500"><LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-600" />Đang tải công việc...</td></tr> : pageTasks.length ? pageTasks.map((task) => {
+                const reminder = deadlineReminder(task);
+                return (
                 <tr key={task.id} className="cursor-pointer hover:bg-slate-50" onClick={() => void openDetail(task)}>
                   <td className="md:w-[400px] md:min-w-[400px] md:max-w-[400px] py-4 pr-4">
                     <div className="flex items-start gap-3">
@@ -1006,7 +1054,19 @@ export default function TaskWorkspace() {
                     </div>
                   </td>
                   <td className="px-4 py-4 text-slate-700">{task.responsibleUserName || "Chưa phân công"}</td>
-                  <td className={`px-4 py-4 ${isOverdue(task) ? "font-semibold text-rose-700" : "text-slate-600"}`}><span className="inline-flex items-center gap-1.5">{displayDate(task.dueDate)}</span>{isOverdue(task) && <span className="mt-1 block text-xs">Quá hạn</span>}</td>
+                  <td className={`px-4 py-4 ${isOverdue(task) ? "font-semibold text-rose-700" : "text-slate-600"}`}>
+                    <span className="inline-flex items-center gap-1.5">
+                      {displayDate(task.dueDate)}
+                    </span>
+                    {reminder && (
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${reminder.tone}`}>
+                        {reminder.label}
+                      </span>
+                    )}
+                    {isOverdue(task) && (
+                      <span className="mt-1 block text-xs">Quá hạn</span>
+                    )}
+                  </td>
                   <td className="px-4 py-4"><div className="flex items-center gap-2"><div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-blue-600" style={{ width: `${task.progress}%` }} /></div><span className="text-xs font-semibold">{task.progress}%</span></div></td>
                   <td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle(task.status)}`}>{STATUS_LABELS[task.status]}</span></td>
                   <td className="pl-4 py-4 text-right">
@@ -1031,7 +1091,8 @@ export default function TaskWorkspace() {
                     )}
                   </td>
                 </tr>
-              )) : <tr><td colSpan={6} className="py-14 text-center text-slate-500"><ClipboardList className="mx-auto mb-2 h-7 w-7 text-slate-300" />Không có công việc phù hợp bộ lọc.</td></tr>}
+                );
+              }) : <tr><td colSpan={6} className="py-14 text-center text-slate-500"><ClipboardList className="mx-auto mb-2 h-7 w-7 text-slate-300" />Không có công việc phù hợp bộ lọc.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1117,9 +1178,16 @@ export default function TaskWorkspace() {
                       ].map(([label, value]) => (
                         <div key={label} className="rounded-xl bg-slate-50 p-3">
                           <span className="text-xs text-slate-500">{label}</span>
-                          <p className="mt-1 text-sm font-semibold text-slate-800">
+                          <span className="mt-1 ml-1 text-sm font-semibold text-slate-800">
                             {value}
-                          </p>
+                          </span>
+                          {label === "Hạn xử lý" && detailDeadlineReminder && (
+                            <span
+                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${detailDeadlineReminder.tone}`}
+                            >
+                              {detailDeadlineReminder.label}
+                            </span>
+                          )}
                           {label === "Văn bản nguồn" && detail.task.documentId && (
                             <a
                               href={`/api/documents/${encodeURIComponent(detail.task.documentId)}/file`}
