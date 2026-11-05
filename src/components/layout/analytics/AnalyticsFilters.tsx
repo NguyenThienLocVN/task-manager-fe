@@ -11,7 +11,7 @@ import {
 } from "./analytics";
 
 const inputClass =
-  "mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100";
+  "mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-slate-800 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100";
 
 export default function AnalyticsFilters({
   filters,
@@ -24,6 +24,7 @@ export default function AnalyticsFilters({
   departments,
   users,
   includeAssignmentFilters = false,
+  reportFiltersOnly = false,
   loading = false,
 }: {
   filters: Filters;
@@ -37,6 +38,7 @@ export default function AnalyticsFilters({
   departments?: AnalyticsOption[];
   users?: AnalyticsOption[];
   includeAssignmentFilters?: boolean;
+  reportFiltersOnly?: boolean;
   loading?: boolean;
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -60,7 +62,8 @@ export default function AnalyticsFilters({
       <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
       </div>
       <div className="mt-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {(!advancedToggle || advancedOpen) && includeAssignmentFilters && (
+        {(reportFiltersOnly || !advancedToggle || advancedOpen) &&
+          includeAssignmentFilters && (
           <>
             <label className="text-xs font-semibold text-slate-600">
               Phòng ban
@@ -77,26 +80,28 @@ export default function AnalyticsFilters({
                 ))}
               </select>
             </label>
-            <label className="text-xs font-semibold text-slate-600">
-              Người phụ trách
-              <select
-                className={inputClass}
-                value={filters.responsibleUserId}
-                onChange={(event) =>
-                  set("responsibleUserId", event.target.value)
-                }
-              >
-                <option value="">Tất cả người phụ trách</option>
-                {(users ?? []).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {!reportFiltersOnly && (
+              <label className="text-xs font-semibold text-slate-600">
+                Người phụ trách
+                <select
+                  className={inputClass}
+                  value={filters.responsibleUserId}
+                  onChange={(event) =>
+                    set("responsibleUserId", event.target.value)
+                  }
+                >
+                  <option value="">Tất cả người phụ trách</option>
+                  {(users ?? []).map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </>
         )}
-        {(!advancedToggle || advancedOpen) && (
+        {(reportFiltersOnly || !advancedToggle || advancedOpen) && (
           <>
             <label className="text-xs font-semibold text-slate-600">
               Trạng thái
@@ -114,7 +119,7 @@ export default function AnalyticsFilters({
               </select>
             </label>
             <label className="text-xs font-semibold text-slate-600">
-              Tình trạng hạn
+              Trạng thái hạn
               <select
                 className={inputClass}
                 value={filters.overdue}
@@ -125,55 +130,94 @@ export default function AnalyticsFilters({
                 <option value="false">Chưa quá hạn</option>
               </select>
             </label>
-            <label className="text-xs font-semibold text-slate-600">
-              Bắt đầu từ
-              <input
-                type="date"
-                className={inputClass}
-                value={filters.startDateFrom}
-                onChange={(event) => set("startDateFrom", event.target.value)}
-              />
-            </label>
-            <label className="text-xs font-semibold text-slate-600">
-              Bắt đầu đến
-              <input
-                type="date"
-                className={inputClass}
-                value={filters.startDateTo}
-                onChange={(event) => set("startDateTo", event.target.value)}
-              />
-            </label>
-            <label className="text-xs font-semibold text-slate-600">
-              Hạn xử lý từ
-              <input
-                type="date"
-                className={inputClass}
-                value={filters.dueDateFrom}
-                onChange={(event) => set("dueDateFrom", event.target.value)}
-              />
-            </label>
-            <label className="text-xs font-semibold text-slate-600">
-              Hạn xử lý đến
-              <input
-                type="date"
-                className={inputClass}
-                value={filters.dueDateTo}
-                onChange={(event) => set("dueDateTo", event.target.value)}
-              />
-            </label>
+            {reportFiltersOnly ? (
+              (!advancedToggle || advancedOpen) && (
+              <>
+                <label className="text-xs font-semibold text-slate-600">
+                  Thời gian bắt đầu
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={filters.startDateFrom}
+                    max={filters.startDateTo || undefined}
+                    onChange={(event) =>
+                      set("startDateFrom", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Thời gian kết thúc
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={filters.startDateTo}
+                    min={filters.startDateFrom || undefined}
+                    onChange={(event) =>
+                      set("startDateTo", event.target.value)
+                    }
+                  />
+                </label>
+              </>
+              )
+            ) : (
+              <>
+                <label className="text-xs font-semibold text-slate-600">
+                  Bắt đầu từ
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={filters.startDateFrom}
+                    onChange={(event) =>
+                      set("startDateFrom", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Bắt đầu đến
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={filters.startDateTo}
+                    onChange={(event) =>
+                      set("startDateTo", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Hạn xử lý từ
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={filters.dueDateFrom}
+                    onChange={(event) => set("dueDateFrom", event.target.value)}
+                  />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Hạn xử lý đến
+                  <input
+                    type="date"
+                    className={inputClass}
+                    value={filters.dueDateTo}
+                    onChange={(event) => set("dueDateTo", event.target.value)}
+                  />
+                </label>
+              </>
+            )}
           </>
         )}
-        <label className="text-xs font-semibold text-slate-600 sm:col-span-2 xl:col-span-3">
-          <span className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              className={`${inputClass} pl-9`}
-              value={filters.search}
-              onChange={(event) => set("search", event.target.value)}
-              placeholder="Tìm theo tiêu đề hoặc mã công việc"
-            />
-          </span>
-        </label>
+        {!reportFiltersOnly && (
+          <label className="text-xs font-semibold text-slate-600 sm:col-span-2 xl:col-span-3">
+            <span className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className={`${inputClass} pl-9`}
+                value={filters.search}
+                onChange={(event) => set("search", event.target.value)}
+                placeholder="Tìm theo tiêu đề hoặc mã công việc"
+              />
+            </span>
+          </label>
+        )}
         <div className="flex items-end gap-2">
           <button
             type="submit"
@@ -203,7 +247,7 @@ export default function AnalyticsFilters({
           className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-blue-700 hover:text-blue-800"
         >
           <SlidersHorizontal className="h-4 w-4" />
-          {advancedOpen ? "Ẩn tìm kiếm nâng cao" : "Tìm kiếm nâng cao"}
+          {advancedOpen ? "ẨN TÌM KIẾM NÂNG CAO" : "TÌM KIẾM NÂNG CAO"}
         </button>
       )}
     </form>
