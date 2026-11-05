@@ -3,14 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, AlertTriangle, BarChart3, Building2, CheckCircle2, ClipboardList, Clock3, Download, LoaderCircle, UserRound } from "lucide-react";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
   Cell,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
-  YAxis,
 } from "recharts";
 import type { Worksheet } from "exceljs";
 import { apiRequest } from "@/lib/auth/api";
@@ -356,6 +353,10 @@ export default function TaskReports() {
       statistics.counts[status] ??
       groupTotal(groups, STATUS_GROUP_KEYS[status]),
   }));
+  const statusChartTotal = statusChartData.reduce(
+    (sum, { count }) => sum + count,
+    0,
+  );
 
   const exportReport = async () => {
     setIsExporting(true);
@@ -765,46 +766,52 @@ export default function TaskReports() {
           <p className="mt-1 text-xs text-slate-500">
             Số lượng công việc trong từng trạng thái
           </p>
-          <div className="mt-4 h-[300px] w-full" aria-label="Biểu đồ cơ cấu trạng thái">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={statusChartData}
-                layout="vertical"
-                margin={{ top: 4, right: 20, bottom: 4, left: 4 }}
-              >
-                <CartesianGrid
-                  stroke="#e2e8f0"
-                  strokeDasharray="3 3"
-                  horizontal={false}
+          <div
+            className="mt-3 h-48 w-full"
+            aria-label="Biểu đồ tròn cơ cấu trạng thái"
+          >
+            {statusChartTotal > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Tooltip />
+                  <Pie
+                    data={statusChartData}
+                    dataKey="count"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={82}
+                    paddingAngle={2}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  >
+                    {statusChartData.map(({ status }) => (
+                      <Cell key={status} fill={STATUS_CHART_COLORS[status]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                Chưa có dữ liệu trạng thái.
+              </div>
+            )}
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
+            {statusChartData.map(({ status, label, count }) => (
+              <div key={status} className="flex min-w-0 items-center gap-1.5 text-xs">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: STATUS_CHART_COLORS[status] }}
                 />
-                <XAxis
-                  type="number"
-                  allowDecimals={false}
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fill: "#64748b" }}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="label"
-                  width={120}
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fill: "#475569" }}
-                />
-                <Tooltip />
-                <Bar
-                  dataKey="count"
-                  name="Số lượng"
-                  radius={[0, 6, 6, 0]}
-                  maxBarSize={24}
-                >
-                  {statusChartData.map(({ status }) => (
-                    <Cell key={status} fill={STATUS_CHART_COLORS[status]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                <span className="min-w-0 flex-1 truncate text-slate-600" title={label}>
+                  {label}
+                </span>
+                <span className="shrink-0 font-semibold text-slate-800">
+                  {count.toLocaleString("vi-VN")}
+                </span>
+              </div>
+            ))}
           </div>
           <div className="mt-6 rounded-xl bg-slate-50 p-4">
             <div className="flex items-center justify-between text-sm">
