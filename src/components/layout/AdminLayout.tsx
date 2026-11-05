@@ -70,6 +70,7 @@ const menus: {
         label: "Báo cáo",
         href: "/quan-tri/bao-cao",
         icon: BarChart3,
+        permission: "REPORT_VIEW",
       },
     ],
   },

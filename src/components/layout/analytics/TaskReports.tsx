@@ -11,6 +11,8 @@ import {
 } from "recharts";
 import type { Worksheet } from "exceljs";
 import { apiRequest } from "@/lib/auth/api";
+import { useAuth } from "@/context/AuthContext";
+import { filterTasksByScope, getTaskScope } from "@/lib/auth/task-scope";
 import AnalyticsFilters from "./AnalyticsFilters";
 import { AnalyticsFilters as Filters, AnalyticsOption, asRecord, buildFilterParams, dateRangeError, EMPTY_FILTERS, normalizeOption, read, readList, STATUS_LABELS, TASK_STATUSES, TaskStatus, text, unwrap } from "./analytics";
 
@@ -221,7 +223,92 @@ function formatFilterDate(value: string): string {
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
+type ScopedReportTask = {
+  departmentId: string;
+  departmentName: string;
+  responsibleUserId: string;
+  status: TaskStatus | "";
+  progress: number;
+  startDate: string;
+  dueDate: string;
+  searchText: string;
+};
+
+function normalizeScopedTask(value: unknown): ScopedReportTask | null {
+  const item = asRecord(value);
+  if (!item) return null;
+  const department = asRecord(item.department);
+  const assignee = asRecord(item.responsibleUser ?? item.responsible_user ?? item.assignee);
+  const status = text(item.status).toUpperCase();
+  const progress = numericValue(read(item, "progressPercent", "progress_percent"));
+  return {
+    departmentId: text(read(item, "departmentId", "department_id") ?? department?.id),
+    departmentName: text(department?.name ?? item.departmentName ?? item.department_name),
+    responsibleUserId: text(read(item, "responsibleUserId", "responsible_user_id") ?? assignee?.id),
+    status: (TASK_STATUSES as string[]).includes(status) ? (status as TaskStatus) : "",
+    progress: progress === null ? 0 : Math.min(100, Math.max(0, progress)),
+    startDate: text(read(item, "startDate", "start_date")).slice(0, 10),
+    dueDate: text(read(item, "dueDate", "due_date")).slice(0, 10),
+    searchText: `${text(read(item, "taskCode", "task_code"))} ${text(item.title)} ${text(item.description)}`.toLowerCase(),
+  };
+}
+
+function isScopedOverdue(task: ScopedReportTask): boolean {
+  if (!task.dueDate || task.status === "COMPLETED" || task.status === "CANCELLED") return false;
+  return task.dueDate < new Date().toLocaleDateString("sv-SE");
+}
+
+function matchesFilters(task: ScopedReportTask, filters: Filters): boolean {
+  const search = filters.search.trim().toLowerCase();
+  return (
+    (!filters.departmentId || task.departmentId === filters.departmentId) &&
+    (!filters.responsibleUserId || task.responsibleUserId === filters.responsibleUserId) &&
+    (!filters.status || task.status === filters.status) &&
+    (!filters.startDateFrom || (task.startDate !== "" && task.startDate >= filters.startDateFrom)) &&
+    (!filters.startDateTo || (task.startDate !== "" && task.startDate <= filters.startDateTo)) &&
+    (!filters.dueDateFrom || (task.dueDate !== "" && task.dueDate >= filters.dueDateFrom)) &&
+    (!filters.dueDateTo || (task.dueDate !== "" && task.dueDate <= filters.dueDateTo)) &&
+    (!filters.overdue || isScopedOverdue(task) === (filters.overdue === "true")) &&
+    (!search || task.searchText.includes(search))
+  );
+}
+
+function buildScopedReport(tasks: ScopedReportTask[]): { groups: ReportGroup[]; statistics: Statistics } {
+  const buckets = new Map<string, { name: string; tasks: ScopedReportTask[] }>();
+  for (const task of tasks) {
+    const key = task.departmentId || task.departmentName;
+    const bucket = buckets.get(key) ?? { name: task.departmentName, tasks: [] };
+    bucket.tasks.push(task);
+    buckets.set(key, bucket);
+  }
+  const countStatus = (items: ScopedReportTask[], status: TaskStatus) =>
+    items.filter((task) => task.status === status).length;
+  const groups = [...buckets.entries()].map(([key, { name, tasks: items }]): ReportGroup => ({
+    groupId: key || null,
+    groupName: name || null,
+    total: items.length,
+    new: countStatus(items, "NEW"),
+    assigned: countStatus(items, "ASSIGNED"),
+    inProgress: countStatus(items, "IN_PROGRESS"),
+    pendingReview: countStatus(items, "PENDING_REVIEW"),
+    completed: countStatus(items, "COMPLETED"),
+    cancelled: countStatus(items, "CANCELLED"),
+    overdue: items.filter(isScopedOverdue).length,
+    avgProgress: items.length ? Math.round(items.reduce((sum, task) => sum + task.progress, 0) / items.length) : 0,
+  }));
+  return {
+    groups,
+    statistics: {
+      total: tasks.length,
+      overdue: tasks.filter(isScopedOverdue).length,
+      counts: Object.fromEntries(TASK_STATUSES.map((status) => [status, countStatus(tasks, status)])) as Partial<Record<TaskStatus, number>>,
+    },
+  };
+}
+
 export default function TaskReports() {
+  const { user } = useAuth();
+  const scope = getTaskScope(user);
   const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS });
   const [activeFilters, setActiveFilters] = useState<Filters>({
     ...EMPTY_FILTERS,
@@ -268,6 +355,29 @@ export default function TaskReports() {
     const params = buildFilterParams(activeFilters);
     const reportParams = new URLSearchParams(params);
     reportParams.set("groupBy", groupBy);
+    if (scope !== "all") {
+      try {
+        const result = await apiRequest<unknown>(scope === "assigned" ? "/tasks/my-tasks" : "/tasks");
+        if (requestId !== reportRequestId.current) return;
+        const scoped = filterTasksByScope(
+          readList(result, "công việc")
+            .items.map(normalizeScopedTask)
+            .filter((item): item is ScopedReportTask => Boolean(item)),
+          user,
+          scope,
+        ).filter((task) => matchesFilters(task, activeFilters));
+        const report = buildScopedReport(scoped);
+        setGroups(report.groups);
+        setStatistics(report.statistics);
+      } catch (loadError) {
+        if (requestId !== reportRequestId.current) return;
+        setGroups([]);
+        setStatistics(EMPTY_STATISTICS);
+        setError(loadError instanceof Error ? loadError.message : "Không tải được báo cáo.");
+      }
+      setIsLoading(false);
+      return;
+    }
     const [reportResult, statisticsResult] = await Promise.allSettled([
         apiRequest<unknown>(
           `/tasks/statistics/report?${reportParams.toString()}`,
@@ -321,7 +431,7 @@ export default function TaskReports() {
 
     if (failures.length) setError(failures.join(" "));
     setIsLoading(false);
-  }, [activeFilters, groupBy]);
+  }, [activeFilters, groupBy, scope, user]);
 
   useEffect(() => {
     Promise.resolve().then(() => {

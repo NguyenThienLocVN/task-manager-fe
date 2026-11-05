@@ -14,8 +14,10 @@ import {
   Plus,
   UserRound,
 } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest } from "@/lib/auth/api";
+import { filterTasksByScope, getTaskScope } from "@/lib/auth/task-scope";
 import CurrentVietnameseDate from "@/components/layout/CurrentVietnameseDate";
 
 type DashboardTask = {
@@ -23,6 +25,8 @@ type DashboardTask = {
   code: string;
   title: string;
   department: string;
+  departmentId: string;
+  responsibleUserId: string;
   owner: string;
   dueDate: string;
   progress: number;
@@ -86,6 +90,8 @@ function normalizedTask(value: unknown): DashboardTask | null {
     code: text(item.taskCode ?? item.task_code),
     title: text(item.title) || "Công việc không có tiêu đề",
     department: text(department?.name ?? item.departmentName ?? item.department_name),
+    departmentId: text(item.departmentId ?? item.department_id ?? department?.id),
+    responsibleUserId: text(item.responsibleUserId ?? item.responsible_user_id ?? owner?.id),
     owner: text(owner?.fullName ?? owner?.full_name ?? owner?.name ?? item.responsibleUserName ?? item.responsible_user_name),
     dueDate: text(item.dueDate ?? item.due_date),
     progress: Number.isFinite(progressValue) ? Math.min(100, Math.max(0, progressValue)) : 0,
@@ -143,8 +149,8 @@ function isOverdue(task: DashboardTask): boolean {
 
 export default function DashboardOverview() {
   const { user } = useAuth();
-  const [statistics, setStatistics] = useState(EMPTY_STATISTICS);
-  const [managedTasks, setManagedTasks] = useState<DashboardTask[]>([]);
+  const [rawStatistics, setStatistics] = useState(EMPTY_STATISTICS);
+  const [allTasks, setAllTasks] = useState<DashboardTask[]>([]);
   const [personalTasks, setPersonalTasks] = useState<DashboardTask[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -171,13 +177,13 @@ export default function DashboardOverview() {
     }
     if (tasksResult.status === "fulfilled") {
       try {
-        setManagedTasks(list(tasksResult.value, "công việc").map(normalizedTask).filter((item): item is DashboardTask => Boolean(item)));
+        setAllTasks(list(tasksResult.value, "công việc").map(normalizedTask).filter((item): item is DashboardTask => Boolean(item)));
       } catch (loadError) {
-        setManagedTasks([]);
+        setAllTasks([]);
         failures.push(loadError instanceof Error ? loadError.message : "Không tải được công việc.");
       }
     } else {
-      setManagedTasks([]);
+      setAllTasks([]);
       failures.push(tasksResult.reason instanceof Error ? tasksResult.reason.message : "Không tải được danh sách công việc.");
     }
     if (personalResult.status === "fulfilled") {
@@ -194,6 +200,11 @@ export default function DashboardOverview() {
     if (failures.length) setError(failures.join(" "));
     setIsLoading(false);
   }, []);
+
+  const scope = getTaskScope(user);
+  const managedTasks = useMemo(() => filterTasksByScope(scope === "assigned" ? personalTasks : allTasks, user, scope), [allTasks, personalTasks, scope, user]);
+
+  const statistics = scope === "all" ? rawStatistics : EMPTY_STATISTICS;
 
   useEffect(() => {
     Promise.resolve().then(() => {
@@ -219,7 +230,7 @@ export default function DashboardOverview() {
   }, [managedTasks, statistics]);
 
   const inProgressTasks = useMemo(
-    () => personalTasks
+    () => filterTasksByScope(personalTasks, user, "assigned")
       .filter((task) => ["ASSIGNED", "IN_PROGRESS", "PENDING_REVIEW"].includes(task.status))
       .sort((left, right) => {
         const a = left.dueDate ? new Date(left.dueDate).getTime() : Number.POSITIVE_INFINITY;
@@ -227,9 +238,17 @@ export default function DashboardOverview() {
         return a - b;
       })
       .slice(0, 6),
-    [personalTasks],
+    [personalTasks, user],
   );
   const overdueTasks = managedTasks.filter(isOverdue).slice(0, 5);
+  const statusChartData = [
+    { label: "Mới", value: totals.newTasks, color: "#94a3b8" },
+    { label: "Đã giao", value: statistics.assigned ?? managedTasks.filter((task) => task.status === "ASSIGNED").length, color: "#f59e0b" },
+    { label: "Đang làm", value: statistics.inProgress ?? managedTasks.filter((task) => task.status === "IN_PROGRESS").length, color: "#2563eb" },
+    { label: "Chờ duyệt", value: totals.pendingReview, color: "#8b5cf6" },
+    { label: "Hoàn thành", value: totals.completed, color: "#10b981" },
+    { label: "Đã hủy", value: statistics.cancelled ?? managedTasks.filter((task) => task.status === "CANCELLED").length, color: "#64748b" },
+  ];
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
@@ -249,10 +268,9 @@ export default function DashboardOverview() {
           { label: "Quá hạn", value: statistics.overdue ?? totals.overdue, note: "Cần được ưu tiên xử lý", icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
           { label: "Đã hoàn thành", value: totals.completed, note: "Theo thống kê hệ thống", icon: CheckCircle2, tone: "bg-emerald-50 text-emerald-700" },
         ].map(({ label, value, note, icon: Icon, tone }) => (
-          <article key={label} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Icon className="h-5 w-5" /></div>
-            <p className="mt-5 text-sm font-medium text-slate-500">{label}</p>
-            <div className="mt-1 flex items-end justify-between gap-2"><p className="text-3xl font-bold tracking-tight text-slate-900">{isLoading ? <span className="inline-block h-9 w-12 animate-pulse rounded bg-slate-100" /> : value}</p><span className={`rounded-full px-2 py-1 text-right text-[11px] font-medium ${tone}`}>{note}</span></div>
+          <article key={label} title={note} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm">
+            <div className="flex min-w-0 items-center gap-3"><div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}><Icon className="h-4 w-4" /></div><p className="truncate text-sm font-medium text-slate-600">{label}</p></div>
+            <p className="text-2xl font-bold tracking-tight text-slate-900">{isLoading ? <span className="inline-block h-7 w-10 animate-pulse rounded bg-slate-100" /> : value}</p>
           </article>
         ))}
       </section>
@@ -265,18 +283,21 @@ export default function DashboardOverview() {
 
         <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
           <h2 className="font-bold text-slate-900">Tình hình xử lý</h2><p className="mt-1 text-xs text-slate-500">Theo trạng thái công việc</p>
-          <div className="mt-5 space-y-4">{[
-            ["Mới", totals.newTasks, "bg-slate-400"],
-            ["Đã giao", statistics.assigned ?? managedTasks.filter((task) => task.status === "ASSIGNED").length, "bg-amber-500"],
-            ["Đang thực hiện", statistics.inProgress ?? managedTasks.filter((task) => task.status === "IN_PROGRESS").length, "bg-blue-600"],
-            ["Chờ phê duyệt", totals.pendingReview, "bg-violet-500"],
-            ["Hoàn thành", totals.completed, "bg-emerald-500"],
-            ["Đã hủy", statistics.cancelled ?? managedTasks.filter((task) => task.status === "CANCELLED").length, "bg-slate-400"],
-          ].map(([label, value, color]) => {
-            const amount = Number(value) || 0;
-            const percentage = totals.total ? Math.min(100, (amount / totals.total) * 100) : 0;
-            return <div key={label as string}><div className="mb-1.5 flex items-center justify-between text-xs"><span className="text-slate-600">{label}</span><strong className="text-slate-800">{isLoading ? "—" : amount}</strong></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${color}`} style={{ width: `${percentage}%` }} /></div></div>;
-          })}</div>
+          <div className="mt-5 h-72">
+            {isLoading ? <div className="flex h-full items-center justify-center text-slate-400"><LoaderCircle className="h-5 w-5 animate-spin" /></div> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={statusChartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} interval={0} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                  <Tooltip cursor={{ fill: "#f1f5f9" }} formatter={(value) => [value, "Số công việc"]} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={36}>
+                    {statusChartData.map((item) => <Cell key={item.label} fill={item.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </article>
       </section>
 

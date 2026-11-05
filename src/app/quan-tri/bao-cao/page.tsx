@@ -11,6 +11,7 @@ export default function TaskReportsPage() {
     <AdminLayout
       title="Báo cáo công việc"
       description="Tổng hợp tiến độ và kết quả xử lý theo phòng ban hoặc người phụ trách."
+      requiredPermissions={["REPORT_VIEW", "REPORT_EXPORT"]}
     >
       <TaskReports />
     </AdminLayout>

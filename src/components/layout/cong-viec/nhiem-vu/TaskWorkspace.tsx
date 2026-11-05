@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { filterTasksByScope, getTaskScope } from "@/lib/auth/task-scope";
 import { apiRequest } from "@/lib/auth/api";
 
 type TaskStatus =
@@ -484,7 +485,8 @@ type TaskWorkspaceProps = {
 
 export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
   const router = useRouter();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
+  const scope = getTaskScope(user);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [inboxTasks, setInboxTasks] = useState<Task[]>([]);
   const [myTasks, setMyTasks] = useState<Task[]>([]);
@@ -605,8 +607,14 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
     });
   }, [loadOptions, loadTasks]);
 
-  const visibleTasks = (activeView === "inbox" ? inboxTasks : activeView === "mine" ? myTasks : tasks)
-    .map((task) => resolveTaskNames(task, users, departments));
+  const visibleTasks = useMemo(() => {
+    const source = activeView === "inbox" ? inboxTasks : activeView === "mine" ? myTasks : tasks;
+    return filterTasksByScope(
+      source.map((task) => resolveTaskNames(task, users, departments)),
+      user,
+      activeView === "mine" ? "assigned" : scope,
+    );
+  }, [activeView, departments, inboxTasks, myTasks, scope, tasks, user, users]);
   const filteredTasks = useMemo(() => {
     const search = keyword.trim().toLocaleLowerCase("vi-VN");
     return visibleTasks.filter((task) => {
