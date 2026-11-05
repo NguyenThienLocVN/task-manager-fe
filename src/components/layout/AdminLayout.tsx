@@ -77,6 +77,11 @@ const menus: {
     label: "Cá nhân",
     items: [
       {
+        label: "Tài khoản",
+        href: "/quan-tri/tai-khoan",
+        icon: UserRound,
+      },
+      {
         label: "KPI cá nhân",
         href: "/quan-tri/kpi-ca-nhan",
         icon: Target,
@@ -590,9 +595,18 @@ export default function AdminLayout({
                 )}
               </div>
 
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700">
-                <UserRound className="h-5 w-5" />
-              </div>
+              {user?.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.avatarUrl}
+                  alt={`Ảnh đại diện của ${user.fullName || "người dùng"}`}
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+              ) : (
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                  <UserRound className="h-5 w-5" />
+                </div>
+              )}
             </div>
             <button
               type="button"
