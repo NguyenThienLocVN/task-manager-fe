@@ -386,46 +386,89 @@ function historyAction(value: Record<string, unknown>): string {
     .replaceAll(" ", "_");
 }
 
+function reviewDecision(value: Record<string, unknown>): "APPROVED" | "REJECTED" | null {
+  const decisionFields = [
+    value.decision,
+    value.reviewDecision,
+    value.review_decision,
+    value.reviewStatus,
+    value.review_status,
+    value.outcome,
+    value.reviewResult,
+    value.review_result,
+    value.resultStatus,
+    value.result_status,
+    value.result,
+    value.status,
+  ];
+  const textFields = [
+    value.action,
+    value.event,
+    value.type,
+    value.title,
+    value.content,
+    value.description,
+    value.comment,
+    value.note,
+  ];
+  const signals = [...decisionFields, ...textFields]
+    .filter((signal): signal is string => typeof signal === "string")
+    .map((signal) => signal.trim().toUpperCase());
+  const taskStatus = text(value.status).trim().toUpperCase();
+
+  if (
+    value.approved === false ||
+    value.isApproved === false ||
+    value.is_approved === false ||
+    taskStatus === "IN_PROGRESS" ||
+    taskStatus === "ASSIGNED" ||
+    signals.some((signal) =>
+      ["REJECT", "REJECTED", "RETURN", "RETURNED", "TỪ CHỐI", "BỊ TỪ CHỐI"].some(
+        (term) => signal.includes(term),
+      ),
+    )
+  ) {
+    return "REJECTED";
+  }
+  if (
+    value.approved === true ||
+    value.isApproved === true ||
+    value.is_approved === true ||
+    taskStatus === "COMPLETED" ||
+    signals.some((signal) =>
+      ["APPROVE", "APPROVED", "ĐƯỢC PHÊ DUYỆT", "ĐÃ PHÊ DUYỆT"].some(
+        (term) => signal.includes(term),
+      ),
+    )
+  ) {
+    return "APPROVED";
+  }
+  return null;
+}
+
 function isReviewHistoryItem(value: Record<string, unknown>): boolean {
   const action = historyAction(value);
-  const decision = text(
-    value.decision ??
-      value.reviewDecision ??
-      value.review_decision,
-  )
-    .trim()
-    .toUpperCase();
   return (
     ["REVIEW", "TASK_REVIEW", "TASK_REVIEWED", "SUBMIT_REVIEW", "TASK_SUBMITTED", "TASK_APPROVED", "TASK_REJECTED"].includes(action) ||
+    action.includes("REVIEW") ||
     ["APPROVE", "APPROVED", "REJECT", "REJECTED", "RETURN", "RETURNED"].includes(action) ||
     action.includes("TỪ CHỐI") ||
     action.includes("REJECT") ||
     action.includes("APPROV") ||
-    ["APPROVE", "APPROVED", "REJECT", "REJECTED", "RETURN", "RETURNED"].includes(decision)
+    text(value.title ?? value.content ?? value.event)
+      .toUpperCase()
+      .includes("DUYỆT KẾT QUẢ") ||
+    reviewDecision(value) !== null
   );
 }
 
 function historyItemTitle(value: Record<string, unknown>): string {
   const title = itemTitle(value);
   const action = historyAction(value);
-  const decision = text(
-    value.decision ??
-      value.reviewDecision ??
-      value.review_decision,
-  )
-    .trim()
-    .toUpperCase();
-  if (
-    ["TASK_REJECTED", "REJECT", "REJECTED", "RETURN", "RETURNED"].includes(action) ||
-    ["REJECT", "REJECTED", "RETURN", "RETURNED"].includes(decision)
-  ) {
-    return "Đã từ chối công việc.";
-  }
-  if (
-    ["TASK_APPROVED", "APPROVE", "APPROVED"].includes(action) ||
-    ["APPROVE", "APPROVED"].includes(decision)
-  ) {
-    return "Đã phê duyệt kết quả công việc.";
+  if (isReviewHistoryItem(value)) {
+    const decision = reviewDecision(value);
+    if (decision === "REJECTED") return "Bị từ chối";
+    if (decision === "APPROVED") return "Được phê duyệt";
   }
   if (["SUBMIT_REVIEW", "TASK_SUBMITTED"].includes(action)) {
     return "Đã trình kết quả để phê duyệt.";
@@ -452,6 +495,16 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
   const actors = [
     value.user,
     value.actor,
+    value.reviewer,
+    value.approver,
+    value.reviewedBy,
+    value.reviewed_by,
+    value.approvedBy,
+    value.approved_by,
+    value.rejectedBy,
+    value.rejected_by,
+    value.performedBy,
+    value.performed_by,
     value.createdByUser,
     value.created_by_user,
     value.createdBy,
@@ -477,6 +530,24 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
       value.author_name ??
       value.senderName ??
       value.sender_name ??
+      value.reviewerName ??
+      value.reviewer_name ??
+      value.approverName ??
+      value.approver_name ??
+      value.reviewedByName ??
+      value.reviewed_by_name ??
+      value.approvedByName ??
+      value.approved_by_name ??
+      value.rejectedByName ??
+      value.rejected_by_name ??
+      value.performedByName ??
+      value.performed_by_name ??
+      value.reviewedBy ??
+      value.reviewed_by ??
+      value.approvedBy ??
+      value.approved_by ??
+      value.rejectedBy ??
+      value.rejected_by ??
       value.createdByName ??
       value.created_by_name,
   );
@@ -488,6 +559,18 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
       value.user_id ??
       value.actorId ??
       value.actor_id ??
+      value.reviewerId ??
+      value.reviewer_id ??
+      value.approverId ??
+      value.approver_id ??
+      value.reviewedById ??
+      value.reviewed_by_id ??
+      value.approvedById ??
+      value.approved_by_id ??
+      value.rejectedById ??
+      value.rejected_by_id ??
+      value.performedById ??
+      value.performed_by_id ??
       value.createdByUserId ??
       value.created_by_user_id ??
       value.createdById ??
@@ -501,7 +584,43 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
 }
 
 function itemDate(value: Record<string, unknown>): string {
-  return text(value.createdAt ?? value.created_at ?? value.updatedAt ?? value.updated_at ?? value.assignedAt ?? value.assigned_at);
+  return text(
+    value.createdAt ??
+      value.created_at ??
+      value.reviewedAt ??
+      value.reviewed_at ??
+      value.occurredAt ??
+      value.occurred_at ??
+      value.timestamp ??
+      value.updatedAt ??
+      value.updated_at ??
+      value.assignedAt ??
+      value.assigned_at,
+  );
+}
+
+function sortTimelineItems(items: Record<string, unknown>[]): Record<string, unknown>[] {
+  return items
+    .map((item, index) => {
+      const date = itemDate(item);
+      const numericTimestamp = Number(date);
+      const timestamp =
+        Number.isFinite(numericTimestamp) && /^\d{10,13}$/.test(date)
+          ? numericTimestamp < 1_000_000_000_000
+            ? numericTimestamp * 1000
+            : numericTimestamp
+          : Date.parse(date);
+      return { item, index, timestamp };
+    })
+    .sort((left, right) => {
+      const leftHasDate = Number.isFinite(left.timestamp);
+      const rightHasDate = Number.isFinite(right.timestamp);
+      if (leftHasDate && rightHasDate) return left.timestamp - right.timestamp || left.index - right.index;
+      if (leftHasDate) return -1;
+      if (rightHasDate) return 1;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
 }
 
 function currentTaskRoute(
@@ -1579,10 +1698,10 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                   <div className="grid items-start gap-4 lg:grid-cols-[7fr_3fr]">
                     {["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Tỉ lệ hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
                     <TimelineList
-                      items={[
+                      items={sortTimelineItems([
                         ...detail.progress,
                         ...detail.history.filter(isReviewHistoryItem),
-                      ]}
+                      ])}
                       empty="Chưa có cập nhật tiến độ."
                       users={users}
                       actorLabel="Người cập nhật"
