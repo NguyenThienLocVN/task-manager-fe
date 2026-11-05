@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MailWarning, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { filterTasksByScope, getTaskScope } from "@/lib/auth/task-scope";
@@ -1688,6 +1688,19 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                         </ul>
                       </div>
                     )}
+                    <button
+                      type="button"
+                      className={`${buttonClass} mt-4 w-full`}
+                      onClick={() =>
+                        setNotice({
+                          type: "error",
+                          text: "Chức năng gửi cảnh báo qua email sẽ được bổ sung sau.",
+                        })
+                      }
+                    >
+                      <MailWarning className="h-4 w-4" />
+                      GỬI CẢNH BÁO
+                    </button>
                   </article>
                   <div className="grid gap-4">
                     {detail.task.status === "PENDING_REVIEW" && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-5 text-violet-800">Công việc đang chờ lãnh đạo xem xét. Kết quả và nhận xét được lưu theo luồng phê duyệt.</div>}
