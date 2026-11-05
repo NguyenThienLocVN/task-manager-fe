@@ -14,6 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  icons: {
+    icon: "/logo_dong_nai.png",
+  },
   title: {
     default: "Quản lý công việc | UBND Phường Tân Khai",
     template: "%s | UBND Phường Tân Khai",

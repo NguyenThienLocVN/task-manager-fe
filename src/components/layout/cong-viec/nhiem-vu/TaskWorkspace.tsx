@@ -916,7 +916,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
     });
   };
 
-  const submitReview = (decision: "APPROVE" | "RETURN") => {
+  const submitReview = (decision: "APPROVE" | "REJECT") => {
     if (!selectedTask || !reviewComment.trim()) {
       setNotice({ type: "error", text: "Vui lòng nhập nhận xét phê duyệt hoặc lý do trả lại." });
       return;
@@ -925,7 +925,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
       "review",
       `/tasks/${encodeURIComponent(selectedTask.id)}/review`,
       { decision, comment: reviewComment.trim() },
-      decision === "APPROVE" ? "Đã phê duyệt kết quả công việc." : "Đã trả công việc để tiếp tục xử lý.",
+      decision === "APPROVE" ? "Đã phê duyệt kết quả công việc." : "Đã từ chối công việc.",
     ).then(() => setReviewComment(""));
   };
 
@@ -1543,7 +1543,6 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                     )}
                   </article>
                   <div className="grid gap-4">
-                    {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && <article className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3><textarea className={`${inputClass} min-h-20`} placeholder="Nhận xét bắt buộc" value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} /><div className="grid grid-cols-2 gap-2"><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("APPROVE")}><Check className="h-4 w-4" />Phê duyệt</button><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("RETURN")}><X className="h-4 w-4" />Trả lại</button></div></article>}
                     {detail.task.status === "PENDING_REVIEW" && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-5 text-violet-800">Công việc đang chờ lãnh đạo xem xét. Kết quả và nhận xét được lưu theo luồng phê duyệt.</div>}
                   </div>
                   </div>
@@ -1553,6 +1552,37 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                     {["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Tỉ lệ hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
                     <TimelineList items={detail.progress} empty="Chưa có cập nhật tiến độ." users={users} actorLabel="Người cập nhật" />
                   </div>
+                  {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && (
+                    <article className={`${panelClass} space-y-3`}>
+                      <h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3>
+                      <textarea
+                        className={`${inputClass} min-h-20`}
+                        placeholder="Nhận xét bắt buộc"
+                        value={reviewComment}
+                        onChange={(event) => setReviewComment(event.target.value)}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          disabled={Boolean(activeAction)}
+                          onClick={() => submitReview("APPROVE")}
+                        >
+                          <Check className="h-4 w-4" />
+                          Phê duyệt
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                          disabled={Boolean(activeAction)}
+                          onClick={() => submitReview("REJECT")}
+                        >
+                          <X className="h-4 w-4" />
+                          Trả lại
+                        </button>
+                      </div>
+                    </article>
+                  )}
                   {(detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && (
                     <form onSubmit={submitReviewResult} className={`${panelClass} space-y-3`}>
                       <h3 className="text-sm font-bold text-slate-900">Trình kết quả</h3>

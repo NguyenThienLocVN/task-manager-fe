@@ -10,7 +10,7 @@ export default function AccountPage() {
   return (
     <AdminLayout
       title="Tài khoản"
-      description="Xem thông tin cá nhân, vai trò và cập nhật hồ sơ của bạn."
+      description="Xem thông tin cá nhân, vai trò và cập nhật hồ sơ."
     >
       <AccountProfile />
     </AdminLayout>
