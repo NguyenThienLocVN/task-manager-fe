@@ -128,7 +128,7 @@ export default function PersonalKpi() {
         <div className="absolute -right-10 -top-16 h-56 w-56 rounded-full border border-white/10" />
         <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
           <div>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
+            <h2 className="mt-3 text-xl font-bold tracking-tight sm:text-2xl">
               KPI cá nhân
             </h2>
             <p className="mt-2 text-sm text-blue-100">

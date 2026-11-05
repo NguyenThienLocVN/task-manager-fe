@@ -50,7 +50,7 @@ export default function AuthLayout({
                   Hệ thống quản lý tập trung
                 </div>
 
-                <h1 className="text-4xl font-bold leading-tight text-white xl:text-5xl">
+                <h1 className="text-3xl font-bold leading-tight text-white xl:text-4xl">
                   Quản lý công việc
                   <br />
                   <span className="text-cyan-300">hiệu quả và minh bạch</span>
@@ -103,7 +103,7 @@ export default function AuthLayout({
             </div>
 
             <div className="mb-8">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">
                 {title}
               </h2>
 

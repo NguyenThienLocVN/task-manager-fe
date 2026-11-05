@@ -540,7 +540,7 @@ export default function TaskReports() {
             <BarChart3 className="h-4 w-4" />
             Theo dõi hiệu quả thực hiện công việc
           </p>
-          <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
+          <h2 className="mt-3 text-xl font-bold tracking-tight sm:text-2xl">
             Báo cáo công việc
           </h2>
         </div>

@@ -114,7 +114,7 @@ export default function Home() {
               <ShieldCheck className="h-4 w-4 text-cyan-300" aria-hidden="true" />
               Một nền tảng, xuyên suốt quy trình công việc
             </div>
-            <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-[3.5rem]">
+            <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl lg:text-5xl">
               Quản lý công việc
               <span className="mt-1 block text-cyan-300">
                 hiệu quả và minh bạch

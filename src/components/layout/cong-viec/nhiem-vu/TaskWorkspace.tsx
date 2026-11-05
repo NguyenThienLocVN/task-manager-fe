@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, AlertTriangle, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest } from "@/lib/auth/api";
 
@@ -477,7 +478,12 @@ function assignmentUserName(
   );
 }
 
-export default function TaskWorkspace() {
+type TaskWorkspaceProps = {
+  taskId?: string;
+};
+
+export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
+  const router = useRouter();
   const { hasPermission } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [inboxTasks, setInboxTasks] = useState<Task[]>([]);
@@ -632,7 +638,7 @@ export default function TaskWorkspace() {
   );
   const departmentUsers = users.filter((person) => !person.departmentId || person.departmentId === form.departmentId);
 
-  const openDetail = async (task: Task) => {
+  const openDetail = useCallback(async (task: Task) => {
     const resolvedTask = resolveTaskNames(task, users, departments);
     setSelectedTask(resolvedTask);
     setDetail(null);
@@ -689,7 +695,38 @@ export default function TaskWorkspace() {
     }
     if (partialErrors.length > 1) setDetailError(`Một số thông tin chưa tải được: ${partialErrors.slice(1).join(" ")}`);
     setDetailLoading(false);
-  };
+  }, [departments, users]);
+
+  useEffect(() => {
+    if (!taskId || isLoadingOptions) return;
+
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      setSelectedTask(null);
+      setDetail(null);
+      setDetailLoading(true);
+      setDetailError(null);
+      void apiRequest<unknown>(`/tasks/${encodeURIComponent(taskId)}`)
+        .then((response) => {
+          if (!active) return;
+      return openDetail(normalizeTask(unwrap(response)));
+        })
+        .catch((requestError: unknown) => {
+          if (!active) return;
+          setDetailError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Không thể tải thông tin nhiệm vụ.",
+          );
+          setDetailLoading(false);
+        });
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [isLoadingOptions, openDetail, taskId]);
 
   const submitTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -955,7 +992,7 @@ export default function TaskWorkspace() {
   const selectedTaskPath = selectedTask ? `/tasks/${encodeURIComponent(selectedTask.id)}` : "";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {notice && (
         <div role="status" className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${selectedTask ? "fixed right-4 top-4 z-[100] w-[calc(100%-2rem)] max-w-md shadow-2xl" : ""} ${notice.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
           {notice.type === "success" ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" /> : <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />}
@@ -964,36 +1001,42 @@ export default function TaskWorkspace() {
         </div>
       )}
 
-      <section className="rounded-3xl bg-gradient-to-br from-[#0e3060] via-[#124987] to-[#2775c7] p-5 text-white shadow-lg sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="mt-1 text-xl font-bold">Tổng quan công việc</h2>
-          </div>
-          {hasPermission("TASK_CREATE") && (
-            <button type="button" className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-blue-800 hover:bg-blue-50" onClick={() => { setNotice(null); setForm(INITIAL_FORM); setShowCreate(true); }}>
-              <Plus className="h-4 w-4" /> TẠO CÔNG VIỆC
-            </button>
-          )}
-        </div>
-        <div className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+      {!taskId && (
+        <>
+      <section className="rounded-2xl bg-gradient-to-br from-[#0e3060] via-[#124987] to-[#2775c7] p-3 text-white shadow-lg sm:p-4">
+        <div className={`grid grid-cols-2 gap-2 ${hasPermission("TASK_CREATE") ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
           {[
             { label: "Tổng công việc", value: statusCounts.total, icon: ClipboardList },
             { label: "Đang xử lý", value: statusCounts.active, icon: Clock3 },
             { label: "Quá hạn", value: statusCounts.overdue, icon: AlertTriangle },
             { label: "Hoàn thành", value: statusCounts.completed, icon: CheckCircle2 },
           ].map(({ label, value, icon: Icon }) => (
-            <div key={label} className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-              <div className="flex items-center justify-between text-xs text-blue-100"><span>{label}</span><Icon className="h-4 w-4" /></div>
-              <div className="mt-1 text-2xl font-bold">{value}</div>
+            <div key={label} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2">
+              <div className="flex items-center justify-between gap-1 text-[11px] text-blue-100"><span className="truncate">{label}</span><Icon className="h-3.5 w-3.5 shrink-0" /></div>
+              <div className="mt-0.5 text-xl font-bold">{value}</div>
             </div>
           ))}
+          {hasPermission("TASK_CREATE") && (
+            <button
+              type="button"
+              className="inline-flex min-h-[60px] items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-white px-2 text-xs font-bold text-blue-800 hover:bg-blue-50 sm:gap-2 sm:px-3 xl:text-sm"
+              onClick={() => {
+                setNotice(null);
+                setForm(INITIAL_FORM);
+                setShowCreate(true);
+              }}
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              TẠO CÔNG VIỆC
+            </button>
+          )}
         </div>
       </section>
 
       {optionsError && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{optionsError}</div>}
 
-      <section className={panelClass}>
-        <div className="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+        <div className="flex flex-col gap-3 border-b border-slate-100 pb-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h3 className="font-bold text-slate-900">Danh sách công việc</h3>
             <p className="mt-1 text-sm text-slate-500">{filteredTasks.length} kết quả</p>
@@ -1010,7 +1053,7 @@ export default function TaskWorkspace() {
             ))}
           </div>
         </div>
-        <div className="grid gap-2 border-b border-slate-100 py-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 border-b border-slate-100 py-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input className={`${inputClass} pl-9`} type="search" value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} placeholder="Tìm tiêu đề, người phụ trách..." aria-label="Tìm công việc" />
@@ -1030,14 +1073,14 @@ export default function TaskWorkspace() {
         </div>
         {error && <div className="my-4 flex gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><AlertCircle className="h-5 w-5 shrink-0" /><span className="flex-1">{error}</span><button type="button" className="font-semibold underline" onClick={() => void loadTasks()}>Thử lại</button></div>}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="text-xs uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-100"><th className="py-4 pr-4">Công việc</th><th className="px-4 py-4">Người phụ trách</th><th className="px-4 py-4">Hạn xử lý</th><th className="px-4 py-4">Tiến độ</th><th className="px-4 py-4">Trạng thái</th><th className="py-4 pl-4 text-right">Hành động</th></tr></thead>
+          <table className="w-full min-w-[1000px] text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-100"><th className="py-2.5 pr-4">Công việc</th><th className="px-4 py-2.5">Người phụ trách</th><th className="px-4 py-2.5">Hạn xử lý</th><th className="px-4 py-2.5">Trạng thái</th><th className="py-2.5 pl-4 text-right">Hành động</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
-              {isLoading ? <tr><td colSpan={6} className="py-14 text-center text-slate-500"><LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-600" />Đang tải công việc...</td></tr> : pageTasks.length ? pageTasks.map((task) => {
+              {isLoading ? <tr><td colSpan={5} className="py-8 text-center text-slate-500"><LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-600" />Đang tải công việc...</td></tr> : pageTasks.length ? pageTasks.map((task) => {
                 const reminder = deadlineReminder(task);
                 return (
-                <tr key={task.id} className="cursor-pointer hover:bg-slate-50" onClick={() => void openDetail(task)}>
-                  <td className="md:w-[400px] md:min-w-[400px] md:max-w-[400px] py-4 pr-4">
+                <tr key={task.id} className="cursor-pointer hover:bg-slate-50" onClick={() => router.push(`/quan-tri/cong-viec/nhiem-vu/${encodeURIComponent(task.id)}`)}>
+                  <td className="md:w-[420px] md:min-w-[420px] md:max-w-[420px] py-2.5 pr-4">
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5 rounded-xl bg-blue-50 p-2 text-blue-700">
                         <ClipboardList className="h-4 w-4" />
@@ -1049,27 +1092,31 @@ export default function TaskWorkspace() {
                             {task.isConfidential && <ShieldAlert className="h-3.5 w-3.5 text-slate-500" />}
                           </div>
                         <div className="mt-1 font-semibold text-slate-900">{task.title}</div>
-                        <div className="mt-1 text-xs text-slate-500">{task.departmentName || "Chưa có phòng ban"}{task.organizationName ? ` · ${task.organizationName}` : ""}</div>
+                        
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-slate-700">{task.responsibleUserName || "Chưa phân công"}</td>
-                  <td className={`px-4 py-4 ${isOverdue(task) ? "font-semibold text-rose-700" : "text-slate-600"}`}>
-                    <span className="inline-flex items-center gap-1.5">
-                      {displayDate(task.dueDate)}
-                    </span>
-                    {reminder && (
-                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${reminder.tone}`}>
-                        {reminder.label}
-                      </span>
-                    )}
-                    {isOverdue(task) && (
-                      <span className="mt-1 block text-xs">Quá hạn</span>
-                    )}
+                  <td className="px-4 py-2.5 text-slate-700">
+                    {task.responsibleUserName || "Chưa phân công"}
+                    <div className="mt-1 text-xs text-slate-500">{task.departmentName || "Chưa có phòng ban"}{task.organizationName ? ` · ${task.organizationName}` : ""}</div>
                   </td>
-                  <td className="px-4 py-4"><div className="flex items-center gap-2"><div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-blue-600" style={{ width: `${task.progress}%` }} /></div><span className="text-xs font-semibold">{task.progress}%</span></div></td>
-                  <td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle(task.status)}`}>{STATUS_LABELS[task.status]}</span></td>
-                  <td className="pl-4 py-4 text-right">
+                  <td className={`px-4 py-2.5 ${isOverdue(task) ? "font-semibold text-rose-700" : "text-slate-600"}`}>
+                    <div className="flex flex-col items-start gap-1">
+                      <span>
+                      {displayDate(task.dueDate)}
+                      </span>
+                      {reminder && (
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${reminder.tone}`}>
+                          {reminder.label}
+                        </span>
+                      )}
+                      {isOverdue(task) && (
+                        <span className="text-xs">Quá hạn</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle(task.status)}`}>{STATUS_LABELS[task.status]}</span></td>
+                  <td className="pl-4 py-2.5 text-right">
                     {hasPermission("TASK_DELETE") && (
                       <button
                         type="button"
@@ -1092,11 +1139,11 @@ export default function TaskWorkspace() {
                   </td>
                 </tr>
                 );
-              }) : <tr><td colSpan={6} className="py-14 text-center text-slate-500"><ClipboardList className="mx-auto mb-2 h-7 w-7 text-slate-300" />Không có công việc phù hợp bộ lọc.</td></tr>}
+              }) : <tr><td colSpan={5} className="py-8 text-center text-slate-500"><ClipboardList className="mx-auto mb-2 h-7 w-7 text-slate-300" />Không có công việc phù hợp bộ lọc.</td></tr>}
             </tbody>
           </table>
         </div>
-        <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
+        <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
           <span className="text-slate-500">Trang {currentPage}/{pageCount}</span>
           <div className="flex gap-2"><button type="button" className="rounded-lg border border-slate-200 px-3 py-2 disabled:opacity-40" disabled={currentPage <= 1} onClick={() => setPage((value) => value - 1)}>Trước</button><button type="button" className="rounded-lg border border-slate-200 px-3 py-2 disabled:opacity-40" disabled={currentPage >= pageCount} onClick={() => setPage((value) => value + 1)}>Tiếp</button></div>
         </div>
@@ -1146,17 +1193,105 @@ export default function TaskWorkspace() {
           </section>
         </div>
       )}
+        </>
+      )}
+
+      {taskId && !detail && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          {detailLoading || !detailError ? (
+            <div className="text-sm text-slate-500">
+              <LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-700" />
+              Đang tải chi tiết công việc...
+            </div>
+          ) : (
+            <>
+              <p role="alert" className="text-sm text-rose-700">
+                {detailError}
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push("/quan-tri/cong-viec/nhiem-vu")}
+                className="mt-4 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                Quay lại danh sách
+              </button>
+            </>
+          )}
+        </section>
+      )}
 
       {selectedTask && detail && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !activeAction) { setSelectedTask(null); setDetail(null); } }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="task-detail-heading" className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-t-3xl bg-slate-50 shadow-2xl sm:rounded-3xl">
-            <header className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-7"><div><h2 id="task-detail-heading" className="mt-1 text-lg font-bold text-slate-900">{detail.task.title}</h2><div className="mt-2 flex flex-wrap gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle(detail.task.status)}`}>{STATUS_LABELS[detail.task.status]}</span>{detail.task.isImportant && <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">Quan trọng</span>}{detail.task.isConfidential && <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"><ShieldAlert className="h-3.5 w-3.5" />Bảo mật</span>}</div></div><button type="button" aria-label="Đóng chi tiết" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" onClick={() => { setSelectedTask(null); setDetail(null); }}><X className="h-5 w-5" /></button></header>
+        <div
+          className={
+            taskId
+              ? "w-full"
+              : "fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-5"
+          }
+          onMouseDown={(event) => {
+            if (
+              !taskId &&
+              event.target === event.currentTarget &&
+              !activeAction
+            ) {
+              setSelectedTask(null);
+              setDetail(null);
+            }
+          }}
+        >
+          <section
+            role={taskId ? "region" : "dialog"}
+            aria-modal={taskId ? undefined : true}
+            aria-labelledby="task-detail-heading"
+            className={
+              taskId
+                ? "w-full overflow-hidden rounded-2xl bg-slate-50 shadow-sm"
+                : "max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-t-3xl bg-slate-50 shadow-2xl sm:rounded-3xl"
+            }
+          >
+            <header className="sticky top-0 z-10 flex items-start gap-3 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-7">
+              {taskId && (
+                <button
+                  type="button"
+                  aria-label="Quay lại danh sách"
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                  onClick={() => {
+                    setSelectedTask(null);
+                    setDetail(null);
+                    router.push("/quan-tri/cong-viec/nhiem-vu");
+                  }}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+              )}
+              <div className="min-w-0 flex-1">
+                <h2 id="task-detail-heading" className="mt-1 text-lg font-bold text-slate-900">{detail.task.title}</h2>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle(detail.task.status)}`}>{STATUS_LABELS[detail.task.status]}</span>
+                  {detail.task.isImportant && <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">Quan trọng</span>}
+                  {detail.task.isConfidential && <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"><ShieldAlert className="h-3.5 w-3.5" />Bảo mật</span>}
+                </div>
+              </div>
+              {!taskId && (
+                <button
+                  type="button"
+                  aria-label="Đóng chi tiết"
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                  onClick={() => {
+                    setSelectedTask(null);
+                    setDetail(null);
+                  }}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              )}
+            </header>
             <div className="grid grid-cols-1 gap-5 p-4 sm:p-6">
               <main className="w-full min-w-0 space-y-4">
                 {detailError && <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><AlertCircle className="h-5 w-5 shrink-0" />{detailError}</div>}
                 <nav className="flex flex-wrap gap-2">{[{ value: "overview", label: "Tổng quan" }, { value: "progress", label: "Tiến độ" }, { value: "comments", label: "Trao đổi" }, { value: "history", label: "Lịch sử" }].map(({ value, label }) => <button key={value} type="button" onClick={() => setDetailTab(value as typeof detailTab)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${detailTab === value ? "bg-blue-700 text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>{label}</button>)}</nav>
                 {detailLoading && <div className="py-5 text-center text-sm text-slate-500"><LoaderCircle className="mx-auto mb-2 h-5 w-5 animate-spin" />Đang tải thông tin...</div>}
-                {detailTab === "overview" && <div className="space-y-4">
+                {detailTab === "overview" && <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
+                  <div className="min-w-0 space-y-4">
                   <article className={panelClass}>
                     <h3 className="text-sm font-bold text-slate-900">Thông tin chung</h3>
                     <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
@@ -1275,6 +1410,8 @@ export default function TaskWorkspace() {
                       </ul>
                     </article>
                   )}
+                  </div>
+                  <div className="min-w-0 space-y-4">
                   <article className={panelClass}>
                     <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
                       <UsersRound className="h-4 w-4 text-blue-600" />
@@ -1401,6 +1538,7 @@ export default function TaskWorkspace() {
                     {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && <article className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3><textarea className={`${inputClass} min-h-20`} placeholder="Nhận xét bắt buộc" value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} /><div className="grid grid-cols-2 gap-2"><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("APPROVE")}><Check className="h-4 w-4" />Phê duyệt</button><button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50" disabled={Boolean(activeAction)} onClick={() => submitReview("RETURN")}><X className="h-4 w-4" />Trả lại</button></div></article>}
                     {detail.task.status === "PENDING_REVIEW" && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-5 text-violet-800">Công việc đang chờ lãnh đạo xem xét. Kết quả và nhận xét được lưu theo luồng phê duyệt.</div>}
                   </div>
+                  </div>
                 </div>}
                 {detailTab === "progress" && <div className="space-y-4">
                   <div className="grid items-start gap-4 lg:grid-cols-[7fr_3fr]">
@@ -1464,7 +1602,7 @@ export default function TaskWorkspace() {
         </div>
       )}
 
-      {selectedTask && !detail && detailLoading && <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/50"><div className="rounded-2xl bg-white p-6 text-center text-sm text-slate-600"><LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-700" />Đang tải chi tiết công việc...</div></div>}
+      {!taskId && selectedTask && !detail && detailLoading && <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/50"><div className="rounded-2xl bg-white p-6 text-center text-sm text-slate-600"><LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-700" />Đang tải chi tiết công việc...</div></div>}
     </div>
   );
 }

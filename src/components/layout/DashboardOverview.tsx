@@ -236,7 +236,7 @@ export default function DashboardOverview() {
       <section className="flex flex-col justify-between gap-4 rounded-2xl bg-gradient-to-r from-[#0e3060] via-[#164785] to-[#2364ae] p-6 text-white shadow-sm sm:flex-row sm:items-center sm:px-8 sm:py-7">
         <div>
           <div className="flex items-center gap-2 text-sm font-medium text-blue-100"><CalendarDays className="h-4 w-4" /><CurrentVietnameseDate /></div>
-          <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">Xin chào, {user?.fullName || "bạn"}</h2>
+          <h2 className="mt-3 text-xl font-bold tracking-tight sm:text-2xl">Xin chào, {user?.fullName || "bạn"}</h2>
         </div>
       </section>
 

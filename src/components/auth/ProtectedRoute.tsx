@@ -32,7 +32,7 @@ export default function ProtectedRoute({
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
         <section className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <h1 className="text-xl font-semibold text-slate-900">
+          <h1 className="text-lg font-semibold text-slate-900">
             Chưa thể khôi phục phiên
           </h1>
           <p role="alert" className="mt-2 text-sm text-slate-600">
@@ -72,7 +72,7 @@ export default function ProtectedRoute({
         >
           <h1
             id="permission-denied-title"
-            className="text-xl font-semibold text-slate-900"
+            className="text-lg font-semibold text-slate-900"
           >
             Không có quyền truy cập
           </h1>

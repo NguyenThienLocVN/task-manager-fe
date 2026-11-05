@@ -438,7 +438,7 @@ export default function AdminLayout({
             </button>
 
             <div>
-              <h1 className="text-xl font-bold text-slate-900">{title}</h1>
+              <h1 className="text-lg font-bold text-slate-900">{title}</h1>
 
               {description && (
                 <p className="mt-0.5 hidden text-sm text-slate-500 sm:block">
@@ -526,7 +526,7 @@ export default function AdminLayout({
                             <Link
                               href={
                                 notification.taskId
-                                  ? `/quan-tri/cong-viec/nhiem-vu?taskId=${encodeURIComponent(notification.taskId)}`
+                                  ? `/quan-tri/cong-viec/nhiem-vu/${encodeURIComponent(notification.taskId)}`
                                   : "/quan-tri/thong-bao"
                               }
                               onClick={() => {

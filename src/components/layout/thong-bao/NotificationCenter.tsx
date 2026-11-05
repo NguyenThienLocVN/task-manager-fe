@@ -11,7 +11,6 @@ import {
   ChevronRight,
   CircleDashedCheck,
   LoaderCircle,
-  Mail,
   MessageSquare,
   Send,
   Trash2,
@@ -258,7 +257,7 @@ export default function NotificationCenter() {
                       <span>{formatNotificationTime(n.createdAt)}</span>
                       {n.taskId && (
                         <Link
-                          href={`/quan-tri/cong-viec/nhiem-vu?taskId=${encodeURIComponent(n.taskId)}`}
+                          href={`/quan-tri/cong-viec/nhiem-vu/${encodeURIComponent(n.taskId)}`}
                           onClick={() => markReadOnOpen(n)}
                           className="font-medium text-sky-700 hover:underline"
                         >
