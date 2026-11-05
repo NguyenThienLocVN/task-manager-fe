@@ -367,8 +367,69 @@ function itemTitle(value: Record<string, unknown>): string {
   return text(value.title ?? value.content ?? value.action ?? value.event ?? value.note ?? value.result) || "Cập nhật";
 }
 
+function historyAction(value: Record<string, unknown>): string {
+  return text(
+    value.action ??
+      value.event ??
+      value.type ??
+      value.actionType ??
+      value.action_type ??
+      value.eventType ??
+      value.event_type ??
+      value.activityType ??
+      value.activity_type ??
+      value.title,
+  )
+    .trim()
+    .toUpperCase()
+    .replaceAll("-", "_")
+    .replaceAll(" ", "_");
+}
+
+function isReviewHistoryItem(value: Record<string, unknown>): boolean {
+  const action = historyAction(value);
+  const decision = text(
+    value.decision ??
+      value.reviewDecision ??
+      value.review_decision,
+  )
+    .trim()
+    .toUpperCase();
+  return (
+    ["REVIEW", "TASK_REVIEW", "TASK_REVIEWED", "SUBMIT_REVIEW", "TASK_SUBMITTED", "TASK_APPROVED", "TASK_REJECTED"].includes(action) ||
+    ["APPROVE", "APPROVED", "REJECT", "REJECTED", "RETURN", "RETURNED"].includes(action) ||
+    action.includes("TỪ CHỐI") ||
+    action.includes("REJECT") ||
+    action.includes("APPROV") ||
+    ["APPROVE", "APPROVED", "REJECT", "REJECTED", "RETURN", "RETURNED"].includes(decision)
+  );
+}
+
 function historyItemTitle(value: Record<string, unknown>): string {
   const title = itemTitle(value);
+  const action = historyAction(value);
+  const decision = text(
+    value.decision ??
+      value.reviewDecision ??
+      value.review_decision,
+  )
+    .trim()
+    .toUpperCase();
+  if (
+    ["TASK_REJECTED", "REJECT", "REJECTED", "RETURN", "RETURNED"].includes(action) ||
+    ["REJECT", "REJECTED", "RETURN", "RETURNED"].includes(decision)
+  ) {
+    return "Đã từ chối công việc.";
+  }
+  if (
+    ["TASK_APPROVED", "APPROVE", "APPROVED"].includes(action) ||
+    ["APPROVE", "APPROVED"].includes(decision)
+  ) {
+    return "Đã phê duyệt kết quả công việc.";
+  }
+  if (["SUBMIT_REVIEW", "TASK_SUBMITTED"].includes(action)) {
+    return "Đã trình kết quả để phê duyệt.";
+  }
   const actionLabels: Record<string, string> = {
     ROUTE: "Giao việc",
     ACCEPT: "Tiếp nhận",
@@ -376,6 +437,8 @@ function historyItemTitle(value: Record<string, unknown>): string {
     PROGRESS: "Cập nhật tiến độ",
     SUBMIT_REVIEW: "Trình phê duyệt",
     REVIEW: "Duyệt kết quả",
+    TASK_REVIEW: "Duyệt kết quả",
+    TASK_REVIEWED: "Duyệt kết quả",
     COMMENT: "Trao đổi",
     CREATE: "Tạo công việc",
     UPDATE: "Cập nhật công việc",
@@ -646,13 +709,13 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
   );
   const departmentUsers = users.filter((person) => !person.departmentId || person.departmentId === form.departmentId);
 
-  const openDetail = useCallback(async (task: Task) => {
+  const openDetail = useCallback(async (task: Task, preserveTab = false) => {
     const resolvedTask = resolveTaskNames(task, users, departments);
     setSelectedTask(resolvedTask);
     setDetail(null);
     setDetailLoading(true);
     setDetailError(null);
-    setDetailTab("overview");
+    if (!preserveTab) setDetailTab("overview");
     setProgressPercent(task.progress);
     setActionNote("");
     setAcceptNote("");
@@ -830,7 +893,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
         body: payload instanceof FormData ? payload : JSON.stringify(payload),
       });
       setNotice({ type: "success", text: successText });
-      await Promise.all([loadTasks(), openDetail(selectedTask)]);
+      await Promise.all([loadTasks(), openDetail(selectedTask, true)]);
       return true;
     } catch (requestError) {
       setNotice({ type: "error", text: requestError instanceof Error ? requestError.message : "Không thể thực hiện thao tác." });
@@ -1383,41 +1446,6 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                         </div>
                       )}
                   </article>
-                  {detail.task.resultFiles.length > 0 && (
-                    <article className={panelClass}>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Tệp kết quả đã trình
-                      </h3>
-                      <ul className="mt-3 space-y-2">
-                        {detail.task.resultFiles.map((file) => (
-                          <li
-                            key={file.id}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3"
-                          >
-                            <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
-                              <FileText className="h-4 w-4 shrink-0 text-blue-600" />
-                              <span className="truncate">{file.name}</span>
-                              {file.size !== null && (
-                                <span className="shrink-0 text-xs text-slate-500">
-                                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                                </span>
-                              )}
-                            </span>
-                            {file.downloadUrl && resultFileHref(file.downloadUrl) && (
-                              <a
-                                href={resultFileHref(file.downloadUrl)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
-                              >
-                                Xem tệp <ArrowUpRight className="h-3.5 w-3.5" />
-                              </a>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </article>
-                  )}
                   </div>
                   <div className="min-w-0 space-y-4">
                   <article className={panelClass}>
@@ -1550,8 +1578,52 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                 {detailTab === "progress" && <div className="space-y-4">
                   <div className="grid items-start gap-4 lg:grid-cols-[7fr_3fr]">
                     {["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Tỉ lệ hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
-                    <TimelineList items={detail.progress} empty="Chưa có cập nhật tiến độ." users={users} actorLabel="Người cập nhật" />
+                    <TimelineList
+                      items={[
+                        ...detail.progress,
+                        ...detail.history.filter(isReviewHistoryItem),
+                      ]}
+                      empty="Chưa có cập nhật tiến độ."
+                      users={users}
+                      actorLabel="Người cập nhật"
+                      translateActions
+                    />
                   </div>
+                  {detail.task.resultFiles.length > 0 && (
+                    <article className={panelClass}>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Tệp kết quả đã trình
+                      </h3>
+                      <ul className="mt-3 space-y-2">
+                        {detail.task.resultFiles.map((file) => (
+                          <li
+                            key={file.id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3"
+                          >
+                            <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                              <FileText className="h-4 w-4 shrink-0 text-blue-600" />
+                              <span className="truncate">{file.name}</span>
+                              {file.size !== null && (
+                                <span className="shrink-0 text-xs text-slate-500">
+                                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                                </span>
+                              )}
+                            </span>
+                            {file.downloadUrl && resultFileHref(file.downloadUrl) && (
+                              <a
+                                href={resultFileHref(file.downloadUrl)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                              >
+                                Xem tệp <ArrowUpRight className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </article>
+                  )}
                   {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && (
                     <article className={`${panelClass} space-y-3`}>
                       <h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3>
@@ -1668,6 +1740,14 @@ function TimelineList({
           {items.map((item, index) => {
             const difficulty = text(item.difficulties ?? item.challenges);
             const solution = text(item.proposedSolution ?? item.proposed_solution);
+            const reviewNote = isReviewHistoryItem(item)
+              ? text(
+                  item.comment ??
+                    item.reviewComment ??
+                    item.review_comment ??
+                    item.reason,
+                )
+              : "";
             const actor = itemActor(item, users);
             return (
               <article key={text(item.id) || index} className="rounded-xl bg-slate-50 p-3">
@@ -1678,6 +1758,7 @@ function TimelineList({
                   </p>
                   {itemDate(item) && <time className="shrink-0 text-[11px] text-slate-500">{displayDateTime(itemDate(item))}</time>}
                 </div>
+                {reviewNote && <p className="mt-2 text-xs text-slate-600">Nhận xét: {reviewNote}</p>}
                 {difficulty && <p className="mt-2 text-xs text-amber-800">Khó khăn: {difficulty}</p>}
                 {solution && <p className="mt-1 text-xs text-blue-800">Giải pháp đề xuất: {solution}</p>}
                 {item.progressPercent !== undefined && <p className="mt-2 text-xs font-semibold text-blue-700">Tiến độ {text(item.progressPercent)}%</p>}
