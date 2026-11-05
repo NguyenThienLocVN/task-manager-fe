@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest } from "@/lib/auth/api";
+import { filterTasksByScope, getTaskScope } from "@/lib/auth/task-scope";
 
 type DocumentStatus =
   | "RECEIVED"
@@ -629,6 +630,7 @@ export default function IncomingDocuments({
   direction?: DocumentDirection;
 }) {
   const { user } = useAuth();
+  const scope = getTaskScope(user);
   const [documents, setDocuments] = useState<IncomingDocument[]>([]);
   const [documentFields, setDocumentFields] = useState<DocumentField[]>([]);
   const [users, setUsers] = useState<Option[]>([]);
@@ -685,6 +687,49 @@ export default function IncomingDocuments({
     if (fieldId) params.set("fieldId", fieldId);
     try {
       const endpoint = direction === "INCOMING" ? "inbox" : "outbox";
+      if (scope !== "all") {
+        // Văn bản chỉ gắn với phòng ban/người xử lý thông qua công việc, nên lọc theo công việc trong phạm vi quyền.
+        const taskPayload = await apiRequest<unknown>(scope === "assigned" ? "/tasks/my-tasks" : "/tasks");
+        const scopedTasks = filterTasksByScope(
+          readList(taskPayload, "công việc").flatMap((item) => {
+            const task = asRecord(item);
+            if (!task) return [];
+            const department = asRecord(task.department);
+            const assignee = asRecord(task.responsibleUser ?? task.responsible_user ?? task.assignee);
+            return [{
+              documentId: text(readValue(task, "documentId", "document_id") ?? asRecord(task.document)?.id),
+              departmentId: text(readValue(task, "departmentId", "department_id") ?? department?.id),
+              departmentName: text(department?.name ?? task.departmentName ?? task.department_name),
+              responsibleUserId: text(readValue(task, "responsibleUserId", "responsible_user_id") ?? assignee?.id),
+            }];
+          }),
+          user,
+          scope,
+        );
+        const allowedIds = new Set(scopedTasks.map((task) => task.documentId).filter(Boolean));
+        const batchSize = 100;
+        const matched: IncomingDocument[] = [];
+        for (let batch = 1; batch <= 100; batch += 1) {
+          const batchParams = new URLSearchParams(params);
+          batchParams.set("page", String(batch));
+          batchParams.set("limit", String(batchSize));
+          const result = normalizeDocumentPage(
+            await apiRequest<unknown>(`/documents/${endpoint}?${batchParams.toString()}`),
+            batch,
+            batchSize,
+          );
+          matched.push(
+            ...result.items.map(normalizeDocument).filter((item) => allowedIds.has(item.id)),
+          );
+          if (!result.items.length || batch * batchSize >= result.total) break;
+        }
+        if (requestId !== listRequestId.current) return;
+        const start = (requestedPage - 1) * pageSize;
+        setDocuments(matched.slice(start, start + pageSize));
+        setTotalDocuments(matched.length);
+        setPage(requestedPage);
+        return;
+      }
       const result = normalizeDocumentPage(
         await apiRequest<unknown>(`/documents/${endpoint}?${params.toString()}`),
         requestedPage,
@@ -708,7 +753,7 @@ export default function IncomingDocuments({
     } finally {
       if (requestId === listRequestId.current) setIsLoading(false);
     }
-  }, [direction, pageSize]);
+  }, [direction, pageSize, scope, user]);
 
   const loadOptions = useCallback(async () => {
     setIsLoadingOptions(true);
