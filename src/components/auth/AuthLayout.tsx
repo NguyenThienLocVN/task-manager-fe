@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
-  Building2,
   CheckCircle2,
   ClipboardCheck,
   FileText,
@@ -34,7 +34,13 @@ export default function AuthLayout({
             <div>
               <Link href="/" className="inline-flex items-center gap-3 text-white">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20 backdrop-blur">
-                  <Building2 className="h-7 w-7" />
+                  <Image
+                    src="/logo_dong_nai.png"
+                    alt="Logo Đồng Nai"
+                    width={128}
+                    height={145}
+                    className="h-10 w-auto object-contain"
+                  />
                 </div>
 
                 <div>
@@ -91,7 +97,13 @@ export default function AuthLayout({
             {/* Logo mobile */}
             <div className="mb-10 flex items-center gap-3 lg:hidden">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-700 text-white">
-                <Building2 className="h-6 w-6" />
+                <Image
+                  src="/logo_dong_nai.png"
+                  alt="Logo Đồng Nai"
+                  width={128}
+                  height={145}
+                  className="h-9 w-auto object-contain"
+                />
               </div>
 
               <div>

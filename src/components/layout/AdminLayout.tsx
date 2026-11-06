@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Bell, BarChart3, Building2, ChevronRight, ClipboardList, FileText, LayoutDashboard, LoaderCircle, LogOut, LucideIcon, Menu, Network, Send, ShieldCheck, Target, UserRound, UsersRound, X, UserLock } from "lucide-react";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest as requestApi } from "@/lib/auth/api";
 import {
@@ -352,7 +353,7 @@ export default function AdminLayout({
             className="flex items-center gap-3"
           >
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-white">
-              <Building2 className="h-6 w-6" />
+              <Image src="/logo_dong_nai.png" alt="Logo Đồng Nai" width={128} height={145} className="h-9 w-auto object-contain" />
             </div>
 
             <div>
