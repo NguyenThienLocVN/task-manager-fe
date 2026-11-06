@@ -235,7 +235,9 @@ function readList(value: unknown, label: string): unknown[] {
 
 type DocumentPage = {
   items: unknown[];
+  hasItems: boolean;
   total: number;
+  hasTotal: boolean;
   page: number;
   pageSize: number;
 };
@@ -267,6 +269,13 @@ function normalizeDocumentPage(
             : Array.isArray(root?.results)
               ? root.results
               : [];
+  const hasItems =
+    Array.isArray(payload) ||
+    Array.isArray(data?.items) ||
+    Array.isArray(data?.results) ||
+    Array.isArray(data?.data) ||
+    Array.isArray(root?.items) ||
+    Array.isArray(root?.results);
   const page = numericValue(
     data?.page ?? data?.currentPage ?? data?.current_page ??
       metadata?.page ?? metadata?.currentPage ?? metadata?.current_page ??
@@ -280,15 +289,57 @@ function normalizeDocumentPage(
       root?.perPage,
     requestedPageSize,
   );
-  const total = numericValue(
+  const rawTotal =
     data?.total ?? data?.totalCount ?? data?.total_count ?? data?.totalItems ??
-      data?.total_items ?? data?.count ?? metadata?.total ??
-      metadata?.totalCount ?? metadata?.total_count ?? metadata?.totalItems ??
-      metadata?.total_items ?? root?.total ?? root?.totalCount ??
-      root?.total_count ?? root?.totalItems ?? root?.total_items ?? root?.count,
-    items.length,
-  );
-  return { items, total, page, pageSize };
+    data?.total_items ?? data?.count ?? metadata?.total ??
+    metadata?.totalCount ?? metadata?.total_count ?? metadata?.totalItems ??
+    metadata?.total_items ?? root?.total ?? root?.totalCount ??
+    root?.total_count ?? root?.totalItems ?? root?.total_items ?? root?.count;
+  const hasTotal = rawTotal !== undefined && rawTotal !== null;
+  const total = numericValue(rawTotal, items.length);
+  return { items, hasItems, total, hasTotal, page, pageSize };
+}
+
+async function loadAllTaskItems(endpoint: string): Promise<unknown[]> {
+  const batchSize = 100;
+  const items: unknown[] = [];
+  const seenTaskIds = new Set<string>();
+  const seenPageSignatures = new Set<string>();
+
+  for (let requestedPage = 1; ; requestedPage += 1) {
+    const params = new URLSearchParams({
+      page: String(requestedPage),
+      limit: String(batchSize),
+    });
+    const result = normalizeDocumentPage(
+      await apiRequest<unknown>(`${endpoint}?${params.toString()}`),
+      requestedPage,
+      batchSize,
+    );
+    if (!result.hasItems) {
+      throw new Error("API không trả về danh sách công việc hợp lệ.");
+    }
+    if (!result.items.length) return items;
+
+    const signature = JSON.stringify(result.items);
+    if (seenPageSignatures.has(signature)) return items;
+    seenPageSignatures.add(signature);
+
+    const newItems = result.items.filter((item) => {
+      const id = text(asRecord(item)?.id);
+      if (!id) return true;
+      if (seenTaskIds.has(id)) return false;
+      seenTaskIds.add(id);
+      return true;
+    });
+    items.push(...newItems);
+
+    if (!newItems.length) return items;
+    if (result.hasTotal && requestedPage * result.pageSize >= result.total) {
+      return items;
+    }
+    if (!result.hasTotal && result.items.length < batchSize) return items;
+  }
 }
 
 function documentFilePath(documentId: string, action: "file" | "download") {
@@ -689,9 +740,11 @@ export default function IncomingDocuments({
       const endpoint = direction === "INCOMING" ? "inbox" : "outbox";
       if (scope !== "all") {
         // Văn bản chỉ gắn với phòng ban/người xử lý thông qua công việc, nên lọc theo công việc trong phạm vi quyền.
-        const taskPayload = await apiRequest<unknown>(scope === "assigned" ? "/tasks/my-tasks" : "/tasks");
+        const taskItems = await loadAllTaskItems(
+          scope === "assigned" ? "/tasks/my-tasks" : "/tasks",
+        );
         const scopedTasks = filterTasksByScope(
-          readList(taskPayload, "công việc").flatMap((item) => {
+          taskItems.flatMap((item) => {
             const task = asRecord(item);
             if (!task) return [];
             const department = asRecord(task.department);
