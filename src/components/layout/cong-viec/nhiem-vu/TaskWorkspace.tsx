@@ -24,6 +24,7 @@ type Task = {
   departmentId: string;
   departmentName: string;
   organizationName: string;
+  assignedById: string;
   assignedByName: string;
   responsibleUserId: string;
   responsibleUserName: string;
@@ -114,7 +115,7 @@ const INITIAL_FORM: TaskForm = {
 };
 const panelClass = "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm";
 const inputClass =
-  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100";
+  "w-full rounded-xl border font-normal border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100";
 const buttonClass =
   "inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -190,7 +191,12 @@ function normalizeTask(value: unknown): Task {
   const department = record(item.department);
   const organization = record(item.organization);
   const assignee = record(item.responsibleUser ?? item.responsible_user ?? item.assignee);
-  const assigner = record(item.assignedByUser ?? item.assigned_by_user ?? item.assigner);
+  const assigner = record(
+    item.assignedByUser ?? item.assigned_by_user ?? item.assigner ??
+      item.assignedBy ?? item.assigned_by ?? item.createdByUser ??
+      item.created_by_user ?? item.createdBy ?? item.created_by,
+  );
+  const assignedByValue = read(item, "assignedBy", "assigned_by");
   const status = text(item.status).toUpperCase() as TaskStatus;
   const progress = Number(read(item, "progressPercent", "progress_percent"));
   return {
@@ -203,9 +209,16 @@ function normalizeTask(value: unknown): Task {
     departmentId: text(read(item, "departmentId", "department_id") ?? department?.id),
     departmentName: text(department?.name ?? item.departmentName ?? item.department_name),
     organizationName: text(organization?.name ?? item.organizationName ?? item.organization_name),
+    assignedById: text(
+      (record(assignedByValue)?.id ?? assignedByValue) ??
+        read(item, "assignedByUserId", "assigned_by_user_id") ??
+        read(item, "createdByUserId", "created_by_user_id") ??
+        assigner?.id,
+    ),
     assignedByName: text(
       assigner?.fullName ?? assigner?.full_name ?? assigner?.name ??
-      item.assignedByName ?? item.assigned_by_name,
+      item.assignedByName ?? item.assigned_by_name ??
+      item.createdByName ?? item.created_by_name,
     ),
     responsibleUserId: text(
       read(item, "responsibleUserId", "responsible_user_id") ?? assignee?.id,
@@ -243,6 +256,10 @@ function resolveTaskNames(
     responsibleUserName:
       task.responsibleUserName ||
       users.find((user) => user.id === task.responsibleUserId)?.name ||
+      "",
+    assignedByName:
+      task.assignedByName ||
+      users.find((user) => user.id === task.assignedById)?.name ||
       "",
   };
 }
@@ -387,6 +404,20 @@ function historyAction(value: Record<string, unknown>): string {
 }
 
 function reviewDecision(value: Record<string, unknown>): "APPROVED" | "REJECTED" | null {
+  const action = historyAction(value);
+  if (
+    ["REJECT", "REJECTED", "TASK_REJECTED", "RETURN", "RETURNED"].includes(
+      action,
+    )
+  ) {
+    return "REJECTED";
+  }
+  if (
+    ["APPROVE", "APPROVED", "TASK_APPROVED"].includes(action)
+  ) {
+    return "APPROVED";
+  }
+
   const decisionFields = [
     value.decision,
     value.reviewDecision,
@@ -399,12 +430,8 @@ function reviewDecision(value: Record<string, unknown>): "APPROVED" | "REJECTED"
     value.resultStatus,
     value.result_status,
     value.result,
-    value.status,
   ];
   const textFields = [
-    value.action,
-    value.event,
-    value.type,
     value.title,
     value.content,
     value.description,
@@ -414,14 +441,11 @@ function reviewDecision(value: Record<string, unknown>): "APPROVED" | "REJECTED"
   const signals = [...decisionFields, ...textFields]
     .filter((signal): signal is string => typeof signal === "string")
     .map((signal) => signal.trim().toUpperCase());
-  const taskStatus = text(value.status).trim().toUpperCase();
 
   if (
     value.approved === false ||
     value.isApproved === false ||
     value.is_approved === false ||
-    taskStatus === "IN_PROGRESS" ||
-    taskStatus === "ASSIGNED" ||
     signals.some((signal) =>
       ["REJECT", "REJECTED", "RETURN", "RETURNED", "TỪ CHỐI", "BỊ TỪ CHỐI"].some(
         (term) => signal.includes(term),
@@ -434,12 +458,35 @@ function reviewDecision(value: Record<string, unknown>): "APPROVED" | "REJECTED"
     value.approved === true ||
     value.isApproved === true ||
     value.is_approved === true ||
-    taskStatus === "COMPLETED" ||
     signals.some((signal) =>
       ["APPROVE", "APPROVED", "ĐƯỢC PHÊ DUYỆT", "ĐÃ PHÊ DUYỆT"].some(
         (term) => signal.includes(term),
       ),
     )
+  ) {
+    return "APPROVED";
+  }
+
+  const resultingStatus = text(
+    value.newStatus ??
+      value.new_status ??
+      value.statusAfter ??
+      value.status_after ??
+      value.toStatus ??
+      value.to_status ??
+      value.status,
+  )
+    .trim()
+    .toUpperCase();
+  if (
+    ["REVIEW", "TASK_REVIEW", "TASK_REVIEWED"].includes(action) &&
+    ["IN_PROGRESS", "ASSIGNED"].includes(resultingStatus)
+  ) {
+    return "REJECTED";
+  }
+  if (
+    ["REVIEW", "TASK_REVIEW", "TASK_REVIEWED"].includes(action) &&
+    resultingStatus === "COMPLETED"
   ) {
     return "APPROVED";
   }
@@ -467,7 +514,7 @@ function historyItemTitle(value: Record<string, unknown>): string {
   const action = historyAction(value);
   if (isReviewHistoryItem(value)) {
     const decision = reviewDecision(value);
-    if (decision === "REJECTED") return "Bị từ chối";
+    if (decision === "REJECTED") return "Bị từ chối, yêu cầu làm lại";
     if (decision === "APPROVED") return "Được phê duyệt";
   }
   if (["SUBMIT_REVIEW", "TASK_SUBMITTED"].includes(action)) {
@@ -479,39 +526,67 @@ function historyItemTitle(value: Record<string, unknown>): string {
     DELEGATE: "Phân công",
     PROGRESS: "Cập nhật tiến độ",
     SUBMIT_REVIEW: "Trình phê duyệt",
-    REVIEW: "Duyệt kết quả",
-    TASK_REVIEW: "Duyệt kết quả",
-    TASK_REVIEWED: "Duyệt kết quả",
+    REVIEW: "Đã xem xét kết quả",
+    TASK_REVIEWED: "Đã hoàn tất xem xét kết quả",
+    APPROVE: "Được phê duyệt",
+    APPROVED: "Được phê duyệt",
+    REJECT: "Bị từ chối, yêu cầu làm lại",
+    REJECTED: "Bị từ chối, yêu cầu làm lại",
+    TASK_REJECTED: "Bị từ chối, yêu cầu làm lại",
     COMMENT: "Trao đổi",
     CREATE: "Tạo công việc",
     UPDATE: "Cập nhật công việc",
     DELETE: "Xóa công việc",
     CANCEL: "Hủy công việc",
   };
-  return actionLabels[title.trim().toUpperCase()] ?? title;
+  const labelAction = action === "TASK_REVIEW" ? "REVIEW" : action;
+  return actionLabels[labelAction] ?? actionLabels[title.trim().toUpperCase()] ?? title;
 }
 
 function itemActor(value: Record<string, unknown>, users: Option[]): string {
-  const actors = [
+  const actorReferences = [
     value.user,
     value.actor,
+    value.actionBy,
+    value.action_by,
+    value.actionByUser,
+    value.action_by_user,
+    value.changedBy,
+    value.changed_by,
+    value.changedByUser,
+    value.changed_by_user,
+    value.updatedBy,
+    value.updated_by,
+    value.updatedByUser,
+    value.updated_by_user,
     value.reviewer,
+    value.reviewerUser,
+    value.reviewer_user,
     value.approver,
+    value.approverUser,
+    value.approver_user,
     value.reviewedBy,
     value.reviewed_by,
+    value.reviewedByUser,
+    value.reviewed_by_user,
     value.approvedBy,
     value.approved_by,
+    value.approvedByUser,
+    value.approved_by_user,
     value.rejectedBy,
     value.rejected_by,
     value.performedBy,
     value.performed_by,
+    value.performedByUser,
+    value.performed_by_user,
     value.createdByUser,
     value.created_by_user,
     value.createdBy,
     value.created_by,
     value.author,
     value.sender,
-  ]
+  ];
+  const actors = actorReferences
     .map(record)
     .filter((actor): actor is Record<string, unknown> => Boolean(actor));
   for (const actor of actors) {
@@ -526,8 +601,14 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
       value.user_name ??
       value.actorName ??
       value.actor_name ??
-      value.authorName ??
-      value.author_name ??
+    value.actionByName ??
+    value.action_by_name ??
+    value.changedByName ??
+    value.changed_by_name ??
+    value.updatedByName ??
+    value.updated_by_name ??
+    value.authorName ??
+    value.author_name ??
       value.senderName ??
       value.sender_name ??
       value.reviewerName ??
@@ -542,6 +623,8 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
       value.rejected_by_name ??
       value.performedByName ??
       value.performed_by_name ??
+      value.createdByUserName ??
+      value.created_by_user_name ??
       value.reviewedBy ??
       value.reviewed_by ??
       value.approvedBy ??
@@ -554,11 +637,20 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
   if (name) return name;
 
   const actorId = text(
+    actorReferences.find(
+      (actor) => typeof actor === "string" || typeof actor === "number",
+    ) ??
     actors.find((actor) => actor.id !== undefined)?.id ??
       value.userId ??
       value.user_id ??
       value.actorId ??
       value.actor_id ??
+      value.actionById ??
+      value.action_by_id ??
+      value.changedById ??
+      value.changed_by_id ??
+      value.updatedById ??
+      value.updated_by_id ??
       value.reviewerId ??
       value.reviewer_id ??
       value.approverId ??
@@ -580,7 +672,11 @@ function itemActor(value: Record<string, unknown>, users: Option[]): string {
       value.senderId ??
       value.sender_id,
   );
-  return users.find((user) => user.id === actorId)?.name ?? "";
+  const matchedUser = users.find((user) => user.id === actorId);
+  if (matchedUser) return matchedUser.name;
+  return users.find(
+    (user) => user.name.trim().toLocaleLowerCase("vi-VN") === actorId.trim().toLocaleLowerCase("vi-VN"),
+  )?.name ?? "";
 }
 
 function itemDate(value: Record<string, unknown>): string {
@@ -826,7 +922,43 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
     }),
     [visibleTasks],
   );
-  const departmentUsers = users.filter((person) => !person.departmentId || person.departmentId === form.departmentId);
+  const userRoles = new Set(
+    (user?.roles ?? []).map((role) =>
+      (typeof role === "string" ? role : role?.name ?? "").trim().toUpperCase(),
+    ),
+  );
+  const canChooseAnyDepartment =
+    userRoles.has("ADMIN") || userRoles.has("LANH_DAO_CO_QUAN");
+  const isDepartmentLeader =
+    !canChooseAnyDepartment && userRoles.has("LANH_DAO_PHONG");
+  const departmentLeaderDepartment = departments.find((department) => {
+    if (!user?.department) return false;
+    if (typeof user.department === "string") {
+      return department.name.trim().toLocaleLowerCase("vi-VN") ===
+        user.department.trim().toLocaleLowerCase("vi-VN");
+    }
+    if (user.department.id !== undefined) {
+      return department.id === String(user.department.id);
+    }
+    const departmentName =
+      user.department.name ??
+      user.department.departmentName ??
+      user.department.department_name;
+    return Boolean(
+      departmentName &&
+        department.name.trim().toLocaleLowerCase("vi-VN") ===
+          departmentName.trim().toLocaleLowerCase("vi-VN"),
+    );
+  });
+  const targetDepartmentId = isDepartmentLeader
+    ? departmentLeaderDepartment?.id ?? ""
+    : form.departmentId;
+  const departmentUsers = users.filter((person) =>
+    person.id !== String(user?.id ?? "") &&
+      (isDepartmentLeader
+        ? Boolean(targetDepartmentId) && person.departmentId === targetDepartmentId
+        : !person.departmentId || person.departmentId === form.departmentId),
+  );
 
   const openDetail = useCallback(async (task: Task, preserveTab = false) => {
     const resolvedTask = resolveTaskNames(task, users, departments);
@@ -860,11 +992,39 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
     });
     if (results[0].status === "fulfilled") {
       try {
+        const routes =
+          results[6].status === "fulfilled"
+            ? asObjectList(results[6].value)
+            : [];
+        const latestRoute = [...routes].sort((left, right) => {
+          const leftTime = Date.parse(
+            text(read(left, "issuedAt", "issued_at")),
+          );
+          const rightTime = Date.parse(
+            text(read(right, "issuedAt", "issued_at")),
+          );
+          return rightTime - leftTime;
+        })[0];
+        const routeIssuer = read(latestRoute ?? {}, "issuedBy", "issued_by");
+        const routeAssigner = record(
+          latestRoute?.issuedByUser ??
+            latestRoute?.issued_by_user ??
+            routeIssuer,
+        );
+        const routeAssignerId = text(
+          (record(routeIssuer)?.id ?? routeIssuer) ??
+            routeAssigner?.id,
+        );
         const detailedTask = resolveTaskNames(
           normalizeTask(unwrap(results[0].value)),
           users,
           departments,
         );
+        detailedTask.assignedByName ||= text(
+          routeAssigner?.fullName ?? routeAssigner?.full_name ??
+            routeAssigner?.name ?? latestRoute?.issuedByName ??
+            latestRoute?.issued_by_name,
+        ) || users.find((item) => item.id === routeAssignerId)?.name || "";
         setDetail({
           task: detailedTask,
           subtasks: results[1].status === "fulfilled" ? asObjectList(results[1].value) : [],
@@ -872,7 +1032,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
           progress: results[3].status === "fulfilled" ? asObjectList(results[3].value) : [],
           comments: results[4].status === "fulfilled" ? asObjectList(results[4].value) : [],
           history: results[5].status === "fulfilled" ? asObjectList(results[5].value) : [],
-          routes: results[6].status === "fulfilled" ? asObjectList(results[6].value) : [],
+          routes,
         });
         setSelectedTask(detailedTask);
         setProgressPercent(detailedTask.progress);
@@ -928,17 +1088,42 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
       });
       return;
     }
-    if (!form.title.trim() || !form.departmentId || !form.dueDate) {
+    if (isDepartmentLeader && !targetDepartmentId) {
+      setNotice({
+        type: "error",
+        text: "Không xác định được phòng ban của bạn để giao công việc.",
+      });
+      return;
+    }
+    const assignmentMode = isDepartmentLeader ? "direct" : form.assignmentMode;
+    if (!form.title.trim() || !targetDepartmentId || !form.dueDate) {
       setNotice({ type: "error", text: "Vui lòng nhập tiêu đề, phòng ban và hạn xử lý." });
       return;
     }
-    if (form.assignmentMode === "direct" && !form.assigneeId) {
+    if (assignmentMode === "direct" && !form.assigneeId) {
       setNotice({ type: "error", text: "Vui lòng chọn chuyên viên nhận việc." });
       return;
     }
-    const organizationId =
-      form.organizationId ||
-      departments.find((item) => item.id === form.departmentId)?.organizationId;
+    if (assignmentMode === "direct" && form.assigneeId === String(user?.id ?? "")) {
+      setNotice({ type: "error", text: "Bạn không thể giao công việc cho chính mình." });
+      return;
+    }
+    if (
+      isDepartmentLeader &&
+      !departmentUsers.some((person) => person.id === form.assigneeId)
+    ) {
+      setNotice({
+        type: "error",
+        text: "Chuyên viên nhận việc phải thuộc phòng ban của bạn.",
+      });
+      return;
+    }
+    const targetDepartment = departments.find(
+      (item) => item.id === targetDepartmentId,
+    );
+    const organizationId = isDepartmentLeader
+      ? targetDepartment?.organizationId
+      : form.organizationId || targetDepartment?.organizationId;
     if (!organizationId) {
       setNotice({
         type: "error",
@@ -973,17 +1158,17 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
       await apiRequest<unknown>(`/tasks/${encodeURIComponent(createdTaskId)}/route`, {
         method: "POST",
         body: JSON.stringify({
-          routeType: form.assignmentMode === "direct" ? "DIRECT" : "DEPARTMENT",
-          departmentId: form.departmentId,
-          ...(form.assignmentMode === "direct"
+          routeType: assignmentMode === "direct" ? "DIRECT" : "DEPARTMENT",
+          departmentId: targetDepartmentId,
+          ...(assignmentMode === "direct"
             ? { assigneeId: form.assigneeId }
             : {}),
-          note: form.assignmentMode === "direct" ? "Giao trực tiếp cho chuyên viên." : null,
+          note: assignmentMode === "direct" ? "Giao trực tiếp cho chuyên viên." : null,
         }),
       });
       setShowCreate(false);
       setForm(INITIAL_FORM);
-      setNotice({ type: "success", text: form.assignmentMode === "direct" ? "Đã tạo và giao trực tiếp công việc." : "Đã tạo công việc và chuyển đến phòng ban." });
+      setNotice({ type: "success", text: assignmentMode === "direct" ? "Đã tạo và giao trực tiếp công việc." : "Đã tạo công việc và chuyển đến phòng ban." });
       setActiveView("all");
       await loadTasks();
     } catch (requestError) {
@@ -1342,7 +1527,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
       {showCreate && (
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSaving) setShowCreate(false); }}>
           <section role="dialog" aria-modal="true" aria-labelledby="task-create-heading" className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-7">
-            <header className="mb-5 flex items-start justify-between"><div><h2 id="task-create-heading" className="text-xl font-bold text-slate-900">Tạo công việc</h2><p className="mt-1 text-sm text-slate-500">Chọn giao qua phòng ban hoặc giao trực tiếp cho chuyên viên.</p></div><button type="button" aria-label="Đóng" className="rounded-lg p-2 hover:bg-slate-100" onClick={() => setShowCreate(false)}><X className="h-5 w-5" /></button></header>
+            <header className="mb-5 flex items-start justify-between"><div><h2 id="task-create-heading" className="text-xl font-bold text-slate-900">Tạo công việc</h2></div><button type="button" aria-label="Đóng" className="rounded-lg p-2 hover:bg-slate-100" onClick={() => setShowCreate(false)}><X className="h-5 w-5" /></button></header>
             <form className="space-y-4" onSubmit={submitTask}>
               <label className="block text-sm font-semibold text-slate-700">Tiêu đề công việc *<input required className={`${inputClass} mt-1.5`} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} maxLength={250} /></label>
               <label className="block text-sm font-semibold text-slate-700">Mô tả<textarea className={`${inputClass} mt-1.5 min-h-24`} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
@@ -1368,11 +1553,38 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                   không cần liên kết văn bản.
                 </span>
               </label>
-              <fieldset className="rounded-2xl border border-slate-200 p-4"><legend className="px-2 text-sm font-semibold text-slate-700">Hình thức giao việc</legend><div className="grid gap-3 sm:grid-cols-2"><label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.assignmentMode === "department" ? "border-blue-300 bg-blue-50" : "border-slate-200"}`}><input type="radio" name="assignmentMode" value="department" checked={form.assignmentMode === "department"} onChange={() => setForm({ ...form, assignmentMode: "department", assigneeId: "" })} /><span><span className="block text-sm font-semibold">Giao qua phòng</span><span className="mt-1 block text-xs text-slate-500">Trưởng phòng tiếp nhận và phân công chuyên viên.</span></span></label><label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.assignmentMode === "direct" ? "border-blue-300 bg-blue-50" : "border-slate-200"}`}><input type="radio" name="assignmentMode" value="direct" checked={form.assignmentMode === "direct"} onChange={() => setForm({ ...form, assignmentMode: "direct" })} /><span><span className="block text-sm font-semibold">Giao trực tiếp</span><span className="mt-1 block text-xs text-slate-500">Chọn phòng ban và chuyên viên thực hiện.</span></span></label></div></fieldset>
+              {canChooseAnyDepartment && (
+                <fieldset className="rounded-2xl border border-slate-200 p-4">
+                  <legend className="px-2 text-sm font-semibold text-slate-700">Hình thức giao việc</legend>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.assignmentMode === "department" ? "border-blue-300 bg-blue-50" : "border-slate-200"}`}>
+                      <input type="radio" name="assignmentMode" value="department" checked={form.assignmentMode === "department"} onChange={() => setForm({ ...form, assignmentMode: "department", assigneeId: "" })} />
+                      <span><span className="block text-sm font-semibold">Giao qua phòng</span><span className="mt-1 block text-xs text-slate-500">Trưởng phòng tiếp nhận và phân công chuyên viên.</span></span>
+                    </label>
+                    <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.assignmentMode === "direct" ? "border-blue-300 bg-blue-50" : "border-slate-200"}`}>
+                      <input type="radio" name="assignmentMode" value="direct" checked={form.assignmentMode === "direct"} onChange={() => setForm({ ...form, assignmentMode: "direct" })} />
+                      <span><span className="block text-sm font-semibold">Giao trực tiếp</span><span className="mt-1 block text-xs text-slate-500">Chọn phòng ban và chuyên viên thực hiện.</span></span>
+                    </label>
+                  </div>
+                </fieldset>
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="text-sm font-semibold text-slate-700">Cơ quan<select className={`${inputClass} mt-1.5`} value={form.organizationId} onChange={(event) => setForm({ ...form, organizationId: event.target.value, departmentId: "" })}><option value="">Chọn cơ quan</option>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                <label className="text-sm font-semibold text-slate-700">Phòng ban *<select required className={`${inputClass} mt-1.5`} value={form.departmentId} onChange={(event) => setForm({ ...form, departmentId: event.target.value, assigneeId: "" })}><option value="">Chọn phòng ban</option>{departments.filter((item) => !form.organizationId || !item.organizationId || item.organizationId === form.organizationId).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                {form.assignmentMode === "direct" && <label className="text-sm font-semibold text-slate-700 sm:col-span-2">Chuyên viên nhận việc *<select required className={`${inputClass} mt-1.5`} value={form.assigneeId} onChange={(event) => setForm({ ...form, assigneeId: event.target.value })} disabled={!form.departmentId || isLoadingOptions}><option value="">Chọn chuyên viên</option>{departmentUsers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+                {canChooseAnyDepartment && (
+                  <>
+                    <label className="text-sm font-semibold text-slate-700">Cơ quan<select className={`${inputClass} mt-1.5`} value={form.organizationId} onChange={(event) => setForm({ ...form, organizationId: event.target.value, departmentId: "" })}><option value="">Chọn cơ quan</option>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                    <label className="text-sm font-semibold text-slate-700">Phòng ban *<select required className={`${inputClass} mt-1.5`} value={form.departmentId} onChange={(event) => setForm({ ...form, departmentId: event.target.value, assigneeId: "" })}><option value="">Chọn phòng ban</option>{departments.filter((item) => !form.organizationId || !item.organizationId || item.organizationId === form.organizationId).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                  </>
+                )}
+                {(isDepartmentLeader ||
+                  (canChooseAnyDepartment && form.assignmentMode === "direct")) && (
+                  <label className="text-sm font-semibold text-slate-700 sm:col-span-2">
+                    Chuyên viên nhận việc *
+                    <select required className={`${inputClass} mt-1.5`} value={form.assigneeId} onChange={(event) => setForm({ ...form, assigneeId: event.target.value })} disabled={!targetDepartmentId || isLoadingOptions}>
+                      <option value="">Chọn chuyên viên</option>
+                      {departmentUsers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                    </select>
+                  </label>
+                )}
                 <label className="text-sm font-semibold text-slate-700">Ngày bắt đầu<input type="date" className={`${inputClass} mt-1.5`} value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></label>
                 <label className="text-sm font-semibold text-slate-700">Hạn xử lý *<input required type="date" min={form.startDate || undefined} className={`${inputClass} mt-1.5`} value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
                 <label className="text-sm font-semibold text-slate-700 sm:col-span-2">Mức ưu tiên<select className={`${inputClass} mt-1.5`} value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })}>{PRIORITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
@@ -1453,7 +1665,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                   <ArrowLeft className="h-5 w-5" />
                 </button>
               )}
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 flex">
                 <h2 id="task-detail-heading" className="mt-1 text-lg font-bold text-slate-900">{detail.task.title}</h2>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle(detail.task.status)}`}>{STATUS_LABELS[detail.task.status]}</span>
@@ -1489,15 +1701,15 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                     </p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       {[
-                        ["Bắt đầu", displayDate(detail.task.startDate)],
-                        ["Hạn xử lý", displayDate(detail.task.dueDate)],
-                        ["Phòng ban", detail.task.departmentName || "—"],
+                        ["Bắt đầu: ", displayDate(detail.task.startDate)],
+                        ["Hạn xử lý: ", displayDate(detail.task.dueDate)],
+                        ["Phòng ban: ", detail.task.departmentName || "—"],
                         [
-                          "Văn bản nguồn", "",
+                          "Văn bản nguồn: ", "",
                         ],
-                        ["Người giao", detail.task.assignedByName || "—"],
+                        ["Người giao: ", detail.task.assignedByName || "—"],
                         [
-                          "Người phụ trách",
+                          "Người phụ trách: ",
                           detail.task.responsibleUserName || "Chưa phân công",
                         ],
                       ].map(([label, value]) => (
@@ -1506,14 +1718,14 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                           <span className="mt-1 ml-1 text-sm font-semibold text-slate-800">
                             {value}
                           </span>
-                          {label === "Hạn xử lý" && detailDeadlineReminder && (
+                          {label === "Hạn xử lý: " && detailDeadlineReminder && (
                             <span
                               className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${detailDeadlineReminder.tone}`}
                             >
                               {detailDeadlineReminder.label}
                             </span>
                           )}
-                          {label === "Văn bản nguồn" && detail.task.documentId && (
+                          {label === "Văn bản nguồn: " && detail.task.documentId && (
                             <a
                               href={`/api/documents/${encodeURIComponent(detail.task.documentId)}/file`}
                               target="_blank"
@@ -1703,7 +1915,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                     </button>
                   </article>
                   <div className="grid gap-4">
-                    {detail.task.status === "PENDING_REVIEW" && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-5 text-violet-800">Công việc đang chờ lãnh đạo xem xét. Kết quả và nhận xét được lưu theo luồng phê duyệt.</div>}
+                    {detail.task.status === "PENDING_REVIEW" && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-5 text-violet-800">Công việc đang chờ lãnh đạo xem xét.</div>}
                   </div>
                   </div>
                 </div>}
@@ -1717,7 +1929,6 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                       ])}
                       empty="Chưa có cập nhật tiến độ."
                       users={users}
-                      actorLabel="Người cập nhật"
                       translateActions
                     />
                   </div>
@@ -1797,34 +2008,36 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                         value={reviewResult}
                         onChange={(event) => setReviewResult(event.target.value)}
                       />
-                      <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50/40">
-                        <Upload className="h-4 w-4 text-blue-700" />
-                        <span className="min-w-0 flex-1 truncate">
-                          {reviewFile?.name ?? "Đính kèm tệp"}
-                        </span>
-                        <input
-                          type="file"
-                          className="sr-only"
-                          accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-                          aria-label="Tệp kết quả PDF, PNG hoặc JPG"
-                          onChange={(event) => {
-                            selectReviewFile(event.target.files?.[0] ?? null)
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
+                      <div className="flex items-center gap-2">
+                        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50/40">
+                          <Upload className="h-4 w-4 shrink-0 text-blue-700" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {reviewFile?.name ?? "Đính kèm tệp"}
+                          </span>
+                          <input
+                            type="file"
+                            className="sr-only"
+                            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                            aria-label="Tệp kết quả PDF, PNG hoặc JPG"
+                            onChange={(event) => {
+                              selectReviewFile(event.target.files?.[0] ?? null)
+                              event.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+                        {reviewFile && (
+                          <button
+                            type="button"
+                            className="shrink-0 text-xs font-semibold text-rose-700 hover:underline"
+                            onClick={() => setReviewFile(null)}
+                          >
+                            Bỏ chọn tệp
+                          </button>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500">
                         Chấp nhận PDF, PNG hoặc JPG, tối đa 10 MB.
                       </p>
-                      {reviewFile && (
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-rose-700 hover:underline"
-                          onClick={() => setReviewFile(null)}
-                        >
-                          Bỏ chọn tệp
-                        </button>
-                      )}
                       <button className={buttonClass} disabled={Boolean(activeAction)}>
                         {activeAction === "submit-review" ? (
                           <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -1836,8 +2049,8 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                     </form>
                   )}
                 </div>}
-                {detailTab === "comments" && <div className="space-y-4"><form onSubmit={submitComment} className={`${panelClass} space-y-3`}><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MessageSquare className="h-4 w-4 text-blue-600" />Trao đổi công việc</h3><textarea required className={`${inputClass} min-h-20`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Nhập nội dung trao đổi..." /><button className={buttonClass} disabled={Boolean(activeAction)}>Gửi trao đổi</button></form><TimelineList items={detail.comments} empty="Chưa có trao đổi nào." users={users} actorLabel="Người trao đổi" /></div>}
-                {detailTab === "history" && <div className="space-y-4"><TimelineList items={detail.history} empty="Chưa có lịch sử thao tác." heading="Lịch sử hoạt động" translateActions users={users} actorLabel="Người thực hiện" /></div>}
+                {detailTab === "comments" && <div className="space-y-4"><form onSubmit={submitComment} className={`${panelClass} space-y-3`}><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MessageSquare className="h-4 w-4 text-blue-600" />Trao đổi công việc</h3><textarea required className={`${inputClass} min-h-20`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Nhập nội dung trao đổi..." /><button className={buttonClass} disabled={Boolean(activeAction)}>Gửi trao đổi</button></form><TimelineList items={detail.comments} empty="Chưa có trao đổi nào." users={users} /></div>}
+                {detailTab === "history" && <div className="space-y-4"><TimelineList items={detail.history} empty="Chưa có lịch sử thao tác." heading="Lịch sử hoạt động" translateActions users={users} /></div>}
               </main>
             </div>
           </section>
@@ -1855,14 +2068,12 @@ function TimelineList({
   heading,
   translateActions = false,
   users = [],
-  actorLabel = "Người gửi",
 }: {
   items: Record<string, unknown>[];
   empty: string;
   heading?: string;
   translateActions?: boolean;
   users?: Option[];
-  actorLabel?: string;
 }) {
   return (
     <section className={panelClass}>
@@ -1877,6 +2088,9 @@ function TimelineList({
                   item.comment ??
                     item.reviewComment ??
                     item.review_comment ??
+                    item.note ??
+                    item.reviewNote ??
+                    item.review_note ??
                     item.reason,
                 )
               : "";
@@ -1885,7 +2099,10 @@ function TimelineList({
               <article key={text(item.id) || index} className="rounded-xl bg-slate-50 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-5 text-slate-700">
-                    {actor && <><span className="font-bold text-slate-500">{actor}</span>{" - "}</>}
+                    <span className="font-bold text-slate-500">
+                      {actor || "Không xác định"}
+                    </span>
+                    {" - "}
                     {translateActions ? historyItemTitle(item) : itemTitle(item)}
                   </p>
                   {itemDate(item) && <time className="shrink-0 text-[11px] text-slate-500">{displayDateTime(itemDate(item))}</time>}
