@@ -100,10 +100,10 @@ function notifySessionExpired() {
   }
 }
 
-export async function apiRequest<T>(
+export async function apiFetch(
   path: string,
   options: RequestInit = {},
-): Promise<T> {
+): Promise<Response> {
   const requestPath = getLocalApiPath(path);
   const headers = new Headers(options.headers);
   if (
@@ -137,6 +137,14 @@ export async function apiRequest<T>(
     throw new ApiError(await getErrorMessage(response), response.status);
   }
 
+  return response;
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const response = await apiFetch(path, options);
   if (
     response.status === 204 ||
     !response.headers.get("content-type")?.includes("json")

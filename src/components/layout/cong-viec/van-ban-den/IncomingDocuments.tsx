@@ -4,7 +4,6 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import Link from "next/link";
 import {
   AlertCircle,
-  ArrowUpRight,
   Bot,
   CalendarDays,
   Check,
@@ -26,6 +25,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest } from "@/lib/auth/api";
 import { filterTasksByScope, getTaskScope } from "@/lib/auth/task-scope";
+import FilePreviewModal, { type PreviewFile } from "@/components/common/FilePreviewModal";
 
 type DocumentStatus =
   | "RECEIVED"
@@ -706,6 +706,7 @@ export default function IncomingDocuments({
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
+  const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
   const [form, setForm] = useState<DocumentForm>(emptyDocumentForm);
   const [documentTypeQuery, setDocumentTypeQuery] = useState("");
   const [isDocumentTypeMenuOpen, setIsDocumentTypeMenuOpen] = useState(false);
@@ -2053,14 +2054,21 @@ export default function IncomingDocuments({
                   </div>
                   {modal.document?.fileUrl && (
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                      <a
-                        href={documentFilePath(modal.document.id, "file")}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (modal.document) {
+                            setPreviewFile({
+                              path: documentFilePath(modal.document.id, "file"),
+                              name: modal.document.title,
+                              filename: modal.document.fileUrl,
+                            });
+                          }
+                        }}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
                       >
-                        Xem tệp hiện tại <ArrowUpRight className="h-3.5 w-3.5" />
-                      </a>
+                        Xem file <FileText className="h-3.5 w-3.5" />
+                      </button>
                       <a
                         href={documentFilePath(modal.document.id, "download")}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
@@ -2160,14 +2168,17 @@ export default function IncomingDocuments({
                   <div className="col-span-2">
                     <dt className="text-xs font-medium text-slate-500">Tệp đính kèm</dt>
                     <dd className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
-                      <a
-                        href={documentFilePath(modal.document.id, "file")}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => setPreviewFile({
+                          path: documentFilePath(modal.document.id, "file"),
+                          name: modal.document.title,
+                          filename: modal.document.fileUrl,
+                        })}
                         className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
                       >
-                        Mở tệp văn bản <ArrowUpRight className="h-4 w-4" />
-                      </a>
+                        Xem file <FileText className="h-4 w-4" />
+                      </button>
                       <a
                         href={documentFilePath(modal.document.id, "download")}
                         className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
@@ -2524,6 +2535,7 @@ export default function IncomingDocuments({
           </div>
         </ModalShell>
       )}
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
     </div>
   );
 }

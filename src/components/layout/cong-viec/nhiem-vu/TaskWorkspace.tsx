@@ -1,11 +1,12 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MailWarning, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MailWarning, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { filterTasksByScope, getTaskScope } from "@/lib/auth/task-scope";
 import { apiRequest } from "@/lib/auth/api";
+import FilePreviewModal, { type PreviewFile } from "@/components/common/FilePreviewModal";
 
 type TaskStatus =
   | "NEW"
@@ -163,8 +164,25 @@ function resultFileHref(url: string): string {
 }
 
 const RESULT_FILE_MAX_SIZE = 25 * 1024 * 1024;
-const RESULT_FILE_EXTENSIONS = new Set(["pdf", "png", "jpg", "jpeg"]);
-const RESULT_FILE_TYPES = new Set(["application/pdf", "image/png", "image/jpeg"]);
+const RESULT_FILE_MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+const RESULT_FILE_ACCEPT = [
+  ...Object.keys(RESULT_FILE_MIME_TYPES).map((extension) => `.${extension}`),
+  ...new Set(Object.values(RESULT_FILE_MIME_TYPES)),
+].join(",");
+
+function isSupportedResultFile(file: File): boolean {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return Object.hasOwn(RESULT_FILE_MIME_TYPES, extension);
+}
 
 function read(value: Record<string, unknown>, camel: string, snake: string): unknown {
   return value[camel] ?? value[snake];
@@ -789,6 +807,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
   const [form, setForm] = useState<TaskForm>(INITIAL_FORM);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [detail, setDetail] = useState<DetailData | null>(null);
+  const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"overview" | "progress" | "comments" | "history">("overview");
@@ -1241,20 +1260,9 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
       setReviewFile(null);
       return;
     }
-    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-    const expectedType =
-      extension === "pdf"
-        ? "application/pdf"
-        : extension === "png"
-          ? "image/png"
-          : "image/jpeg";
-    if (
-      !RESULT_FILE_EXTENSIONS.has(extension) ||
-      (file.type !== "" &&
-        (!RESULT_FILE_TYPES.has(file.type) || file.type !== expectedType))
-    ) {
+    if (!isSupportedResultFile(file)) {
       setReviewFile(null);
-      setNotice({ type: "error", text: "Tệp kết quả phải có định dạng PDF, PNG hoặc JPG." });
+      setNotice({ type: "error", text: "Tệp kết quả phải có định dạng PDF, PNG, JPG, DOC, DOCX, XLS hoặc XLSX." });
       return;
     }
     if (file.size > RESULT_FILE_MAX_SIZE) {
@@ -1726,16 +1734,17 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                             </span>
                           )}
                           {label === "Văn bản nguồn: " && detail.task.documentId && (
-                            <a
-                              href={`/api/documents/${encodeURIComponent(detail.task.documentId)}/file`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => setPreviewFile({
+                                path: `/api/documents/${encodeURIComponent(detail.task.documentId)}/file`,
+                                name: "Văn bản nguồn",
+                              })}
                               className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900"
                             >
                               <FileText className="h-3.5 w-3.5" />
-                              Xem file PDF
-                              <ArrowUpRight className="h-3.5 w-3.5" />
-                            </a>
+                              Xem file
+                            </button>
                           )}
                         </div>
                       ))}
@@ -1932,70 +1941,88 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                       translateActions
                     />
                   </div>
-                  {detail.task.resultFiles.length > 0 && (
-                    <article className={panelClass}>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Tệp kết quả đã trình
-                      </h3>
-                      <ul className="mt-3 space-y-2">
-                        {detail.task.resultFiles.map((file) => (
-                          <li
-                            key={file.id}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3"
-                          >
-                            <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
-                              <FileText className="h-4 w-4 shrink-0 text-blue-600" />
-                              <span className="truncate">{file.name}</span>
-                              {file.size !== null && (
-                                <span className="shrink-0 text-xs text-slate-500">
-                                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                                </span>
-                              )}
-                            </span>
-                            {file.downloadUrl && resultFileHref(file.downloadUrl) && (
-                              <a
-                                href={resultFileHref(file.downloadUrl)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                  {(detail.task.resultFiles.length > 0 ||
+                    (hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW")) && (
+                    <article className={`${panelClass} space-y-4`}>
+                      {detail.task.resultFiles.length > 0 && (
+                        <section>
+                          <h3 className="text-sm font-bold text-slate-900">
+                            Tệp kết quả đã trình
+                          </h3>
+                          <ul className="mt-3 space-y-2">
+                            {detail.task.resultFiles.map((file) => (
+                              <li
+                                key={file.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3"
                               >
-                                Xem tệp <ArrowUpRight className="h-3.5 w-3.5" />
-                              </a>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </article>
-                  )}
-                  {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && (
-                    <article className={`${panelClass} space-y-3`}>
-                      <h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3>
-                      <textarea
-                        className={`${inputClass} min-h-20`}
-                        placeholder="Nhận xét bắt buộc"
-                        value={reviewComment}
-                        onChange={(event) => setReviewComment(event.target.value)}
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                          disabled={Boolean(activeAction)}
-                          onClick={() => submitReview("APPROVE")}
-                        >
-                          <Check className="h-4 w-4" />
-                          Phê duyệt
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-                          disabled={Boolean(activeAction)}
-                          onClick={() => submitReview("REJECT")}
-                        >
-                          <X className="h-4 w-4" />
-                          Trả lại
-                        </button>
-                      </div>
+                                <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                                  <FileText className="h-4 w-4 shrink-0 text-blue-600" />
+                                  <span className="truncate">{file.name}</span>
+                                  {file.size !== null && (
+                                    <span className="shrink-0 text-xs text-slate-500">
+                                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                                    </span>
+                                  )}
+                                </span>
+                                {file.downloadUrl && resultFileHref(file.downloadUrl) && (
+                                  <span className="flex items-center gap-3">
+                                    {!/\.(doc|xls)$/i.test(file.name) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewFile({
+                                          path: resultFileHref(file.downloadUrl),
+                                          name: file.name,
+                                        })}
+                                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                                      >
+                                        Xem file <FileText className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                    <a
+                                      href={resultFileHref(file.downloadUrl)}
+                                      download
+                                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                                    >
+                                      Tải xuống
+                                    </a>
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      )}
+                      {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && (
+                        <section className={`space-y-3 ${detail.task.resultFiles.length > 0 ? "border-t border-slate-100 pt-4" : ""}`}>
+                          <h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3>
+                          <textarea
+                            className={`${inputClass} min-h-20`}
+                            placeholder="Nhận xét bắt buộc"
+                            value={reviewComment}
+                            onChange={(event) => setReviewComment(event.target.value)}
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                              disabled={Boolean(activeAction)}
+                              onClick={() => submitReview("APPROVE")}
+                            >
+                              <Check className="h-4 w-4" />
+                              Phê duyệt
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                              disabled={Boolean(activeAction)}
+                              onClick={() => submitReview("REJECT")}
+                            >
+                              <X className="h-4 w-4" />
+                              Trả lại
+                            </button>
+                          </div>
+                        </section>
+                      )}
                     </article>
                   )}
                   {(detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && (
@@ -2017,8 +2044,8 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                           <input
                             type="file"
                             className="sr-only"
-                            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-                            aria-label="Tệp kết quả PDF, PNG hoặc JPG"
+                            accept={RESULT_FILE_ACCEPT}
+                            aria-label="Tệp kết quả PDF, ảnh, Word hoặc Excel"
                             onChange={(event) => {
                               selectReviewFile(event.target.files?.[0] ?? null)
                               event.currentTarget.value = "";
@@ -2036,7 +2063,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                         )}
                       </div>
                       <p className="text-xs text-slate-500">
-                        Chấp nhận PDF, PNG hoặc JPG, tối đa 10 MB.
+                        Chấp nhận PDF, PNG, JPG, DOC, DOCX, XLS hoặc XLSX, tối đa 25 MB. Tệp DOC và XLS cần tải xuống để xem.
                       </p>
                       <button className={buttonClass} disabled={Boolean(activeAction)}>
                         {activeAction === "submit-review" ? (
@@ -2049,7 +2076,18 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                     </form>
                   )}
                 </div>}
-                {detailTab === "comments" && <div className="space-y-4"><form onSubmit={submitComment} className={`${panelClass} space-y-3`}><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><MessageSquare className="h-4 w-4 text-blue-600" />Trao đổi công việc</h3><textarea required className={`${inputClass} min-h-20`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Nhập nội dung trao đổi..." /><button className={buttonClass} disabled={Boolean(activeAction)}>Gửi trao đổi</button></form><TimelineList items={detail.comments} empty="Chưa có trao đổi nào." users={users} /></div>}
+                {detailTab === "comments" && (
+                  <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                    <form onSubmit={submitComment} className={`${panelClass} min-w-0 space-y-3`}>
+                      <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                        <MessageSquare className="h-4 w-4 text-blue-600" />Trao đổi công việc
+                      </h3>
+                      <textarea required className={`${inputClass} min-h-20`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Nhập nội dung trao đổi..." />
+                      <button className={buttonClass} disabled={Boolean(activeAction)}>Gửi trao đổi</button>
+                    </form>
+                    <TimelineList items={detail.comments} empty="Chưa có trao đổi nào." users={users} />
+                  </div>
+                )}
                 {detailTab === "history" && <div className="space-y-4"><TimelineList items={detail.history} empty="Chưa có lịch sử thao tác." heading="Lịch sử hoạt động" translateActions users={users} /></div>}
               </main>
             </div>
@@ -2058,6 +2096,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
       )}
 
       {!taskId && selectedTask && !detail && detailLoading && <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/50"><div className="rounded-2xl bg-white p-6 text-center text-sm text-slate-600"><LoaderCircle className="mx-auto mb-2 h-6 w-6 animate-spin text-blue-700" />Đang tải chi tiết công việc...</div></div>}
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
     </div>
   );
 }

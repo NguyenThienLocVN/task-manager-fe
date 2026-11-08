@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "argon2": "^0.45.1",
+    "dompurify": "^3.2.7",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.52.0",
+    "mammoth": "^1.11.0",
     "next": "16.4.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",

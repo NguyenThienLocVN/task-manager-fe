@@ -49,6 +49,16 @@ endpoints under `/tasks` (including `GET /tasks/workflow/my-inbox`). Task
 statuses are `NEW`, `ASSIGNED`, `IN_PROGRESS`, `PENDING_REVIEW`, `COMPLETED`,
 and `CANCELLED`.
 
+## File preview
+
+Document and task-result previews are loaded through the authenticated API
+proxy and rendered locally in the browser; file contents are not sent to an
+external viewer. PDF, PNG, JPEG, DOCX and XLSX are supported. Word formatting
+may differ from the original, and Excel previews show up to 500 rows and 100
+columns per sheet. Excel previews apply cell font colors, solid fills and
+borders; other Excel formatting may differ from the original. Legacy DOC/XLS
+files and other formats must be downloaded or converted before previewing.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
