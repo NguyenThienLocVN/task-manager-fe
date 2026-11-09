@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, ClipboardList, Clock3, FileText, Inbox, LoaderCircle, MailWarning, MessageSquare, Plus, Search, ShieldAlert, Trash2, Upload, UserRound, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -1226,6 +1226,29 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
     }
   };
 
+  const sendReminder = async () => {
+    if (!selectedTask || activeAction) return;
+    setActiveAction("remind");
+    setNotice(null);
+    try {
+      const result = await apiRequest<{ sent: boolean }>(
+        `/tasks/${encodeURIComponent(selectedTask.id)}/remind`,
+        { method: "POST" },
+      );
+      if (!result?.sent) {
+        throw new Error("Máy chủ chưa xác nhận yêu cầu gửi email.");
+      }
+      setNotice({ type: "success", text: "Đã gửi thông báo đến email chuyên viên." });
+    } catch (requestError) {
+      setNotice({
+        type: "error",
+        text: requestError instanceof Error ? requestError.message : "Không thể gửi cảnh báo qua email.",
+      });
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
   const submitProgress = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedTask || !progressContent.trim()) {
@@ -1912,15 +1935,15 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                     <button
                       type="button"
                       className={`${buttonClass} mt-4 w-full`}
-                      onClick={() =>
-                        setNotice({
-                          type: "error",
-                          text: "Chức năng gửi cảnh báo qua email sẽ được bổ sung sau.",
-                        })
-                      }
+                      disabled={Boolean(activeAction)}
+                      onClick={() => void sendReminder()}
                     >
-                      <MailWarning className="h-4 w-4" />
-                      GỬI CẢNH BÁO
+                      {activeAction === "remind" ? (
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MailWarning className="h-4 w-4" />
+                      )}
+                      {activeAction === "remind" ? "ĐANG GỬI..." : "GỬI CẢNH BÁO"}
                     </button>
                   </article>
                   <div className="grid gap-4">
@@ -1939,13 +1962,9 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                       empty="Chưa có cập nhật tiến độ."
                       users={users}
                       translateActions
-                    />
-                  </div>
-                  {(detail.task.resultFiles.length > 0 ||
-                    (hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW")) && (
-                    <article className={`${panelClass} space-y-4`}>
+                    >
                       {detail.task.resultFiles.length > 0 && (
-                        <section>
+                        <section className="mt-4 border-t border-slate-100 pt-4">
                           <h3 className="text-sm font-bold text-slate-900">
                             Tệp kết quả đã trình
                           </h3>
@@ -1992,37 +2011,37 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                           </ul>
                         </section>
                       )}
-                      {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && (
-                        <section className={`space-y-3 ${detail.task.resultFiles.length > 0 ? "border-t border-slate-100 pt-4" : ""}`}>
-                          <h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3>
-                          <textarea
-                            className={`${inputClass} min-h-20`}
-                            placeholder="Nhận xét bắt buộc"
-                            value={reviewComment}
-                            onChange={(event) => setReviewComment(event.target.value)}
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                              disabled={Boolean(activeAction)}
-                              onClick={() => submitReview("APPROVE")}
-                            >
-                              <Check className="h-4 w-4" />
-                              Phê duyệt
-                            </button>
-                            <button
-                              type="button"
-                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
-                              disabled={Boolean(activeAction)}
-                              onClick={() => submitReview("REJECT")}
-                            >
-                              <X className="h-4 w-4" />
-                              Trả lại
-                            </button>
-                          </div>
-                        </section>
-                      )}
+                    </TimelineList>
+                  </div>
+                  {hasPermission("TASK_APPROVE") && detail.task.status === "PENDING_REVIEW" && (
+                    <article className={`${panelClass} space-y-3`}>
+                      <h3 className="text-sm font-bold text-slate-900">Phê duyệt kết quả</h3>
+                      <textarea
+                        className={`${inputClass} min-h-20`}
+                        placeholder="Nhận xét bắt buộc"
+                        value={reviewComment}
+                        onChange={(event) => setReviewComment(event.target.value)}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          disabled={Boolean(activeAction)}
+                          onClick={() => submitReview("APPROVE")}
+                        >
+                          <Check className="h-4 w-4" />
+                          Phê duyệt
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                          disabled={Boolean(activeAction)}
+                          onClick={() => submitReview("REJECT")}
+                        >
+                          <X className="h-4 w-4" />
+                          Trả lại
+                        </button>
+                      </div>
                     </article>
                   )}
                   {(detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && (
@@ -2107,12 +2126,14 @@ function TimelineList({
   heading,
   translateActions = false,
   users = [],
+  children,
 }: {
   items: Record<string, unknown>[];
   empty: string;
   heading?: string;
   translateActions?: boolean;
   users?: Option[];
+  children?: ReactNode;
 }) {
   return (
     <section className={panelClass}>
@@ -2155,6 +2176,7 @@ function TimelineList({
           })}
         </div>
       ) : <p className="mt-3 text-sm text-slate-500">{empty}</p>}
+      {children}
     </section>
   );
 }
