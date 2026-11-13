@@ -8,7 +8,7 @@ import {
 } from "@/components/auth/HomeAuthActions";
 
 export const metadata: Metadata = {
-  title: "Quản lý công việc hiệu quả và minh bạch",
+  title: "Hệ thống quản lý công việc P. Tân Khai - Tp. Đồng Nai",
   description:
     "Nền tảng quản lý công việc tập trung, giúp giao nhiệm vụ rõ ràng, theo dõi tiến độ và phối hợp hiệu quả.",
 };

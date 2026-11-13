@@ -556,6 +556,7 @@ function historyItemTitle(value: Record<string, unknown>): string {
     UPDATE: "Cập nhật công việc",
     DELETE: "Xóa công việc",
     CANCEL: "Hủy công việc",
+    REMINDER: "Gửi email thông báo đến cán bộ phụ trách",
   };
   const labelAction = action === "TASK_REVIEW" ? "REVIEW" : action;
   return actionLabels[labelAction] ?? actionLabels[title.trim().toUpperCase()] ?? title;
@@ -1932,19 +1933,31 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                         </ul>
                       </div>
                     )}
-                    <button
-                      type="button"
-                      className={`${buttonClass} mt-4 w-full`}
-                      disabled={Boolean(activeAction)}
-                      onClick={() => void sendReminder()}
-                    >
-                      {activeAction === "remind" ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MailWarning className="h-4 w-4" />
-                      )}
-                      {activeAction === "remind" ? "ĐANG GỬI..." : "GỬI CẢNH BÁO"}
-                    </button>
+                    {hasPermission("TASK_SEND_NOTI") && (
+                      <div className="group relative mt-4 w-full">
+                        <span
+                          id="task-reminder-tooltip"
+                          role="tooltip"
+                          className="invisible absolute bottom-full left-1/2 z-10 mb-2 w-max max-w-[min(20rem,calc(100vw-3rem))] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-center text-xs font-medium leading-5 text-white opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                        >
+                          Gửi email nhắc việc đến cán bộ phụ trách
+                        </span>
+                        <button
+                          type="button"
+                          aria-describedby="task-reminder-tooltip"
+                          className={`${buttonClass} w-full`}
+                          disabled={Boolean(activeAction)}
+                          onClick={() => void sendReminder()}
+                        >
+                          {activeAction === "remind" ? (
+                            <LoaderCircle className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <MailWarning className="h-4 w-4" />
+                          )}
+                          {activeAction === "remind" ? "ĐANG GỬI..." : "GỬI CẢNH BÁO"}
+                        </button>
+                      </div>
+                    )}
                   </article>
                   <div className="grid gap-4">
                     {detail.task.status === "PENDING_REVIEW" && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-5 text-violet-800">Công việc đang chờ lãnh đạo xem xét.</div>}
@@ -1953,7 +1966,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                 </div>}
                 {detailTab === "progress" && <div className="space-y-4">
                   <div className="grid items-start gap-4 lg:grid-cols-[7fr_3fr]">
-                    {["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Tỉ lệ hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
+                    {hasPermission("TASK_UPDATE_PROGRESS") && ["ASSIGNED", "IN_PROGRESS"].includes(detail.task.status) && <form onSubmit={submitProgress} className={`${panelClass} space-y-3`}><h3 className="text-sm font-bold text-slate-900">Cập nhật tiến độ</h3><label className="block text-sm font-medium text-slate-700">Tỉ lệ hoàn thành: {progressPercent}%<input className="mt-2 w-full accent-blue-700" type="range" min="0" step={10} max="100" value={progressPercent} onChange={(event) => setProgressPercent(Number(event.target.value))} /></label><label className="block text-sm font-medium text-slate-700">Nội dung thực hiện *<textarea required className={`${inputClass} mt-1.5 min-h-20`} value={progressContent} onChange={(event) => setProgressContent(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Khó khăn<textarea className={`${inputClass} mt-1.5 min-h-16`} value={difficulties} onChange={(event) => setDifficulties(event.target.value)} /></label><label className="block text-sm font-medium text-slate-700">Giải pháp đề xuất<textarea className={`${inputClass} mt-1.5 min-h-16`} value={proposedSolution} onChange={(event) => setProposedSolution(event.target.value)} /></label><button className={buttonClass} disabled={Boolean(activeAction)}>{activeAction === "progress" && <LoaderCircle className="h-4 w-4 animate-spin" />}Lưu cập nhật</button></form>}
                     <TimelineList
                       items={sortTimelineItems([
                         ...detail.progress,
@@ -2044,7 +2057,7 @@ export default function TaskWorkspace({ taskId }: TaskWorkspaceProps) {
                       </div>
                     </article>
                   )}
-                  {(detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && (
+                  {hasPermission("TASK_SUBMIT") && (detail.task.status === "IN_PROGRESS" || detail.task.status === "ASSIGNED") && (
                     <form onSubmit={submitReviewResult} className={`${panelClass} space-y-3`}>
                       <h3 className="text-sm font-bold text-slate-900">Trình kết quả</h3>
                       <textarea
